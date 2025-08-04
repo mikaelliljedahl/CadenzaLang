@@ -456,42 +456,88 @@ cadenzac dev --watch
 
 ### `serve` Command ✅ **WORKING**
 
-Serves a compiled Cadenza web application.
+Serves Cadenza UI components through an embedded Blazor host with real-time compilation. Supports both multi-component projects and single component files.
 
 #### Syntax
 
 ```bash
-# Using standalone executable
-./bin/release/cadenzac-core --serve <input-file> [--port <port>]
+# Multi-component project (recommended)
+dotnet run --project src/Cadenza.Core/cadenzac-core.csproj --serve <project-path> [options]
 
-# Using the Cadenza CLI (if aliased or in PATH)
-cadenzac --serve <input-file> [--port <port>]
+# Single component file (simple)
+dotnet run --project src/Cadenza.Core/cadenzac-core.csproj --serve <file.cdz> [options]
+
+# Using standalone executable (alternative)
+./bin/release/cadenzac-core --serve <input> [options]
 ```
 
 #### Options
 
-- `--port <port>`: Specify the port to serve the application on (default: 5150)
+- `--port <port>`: Specify the port to serve the application on (default: 5000)
+- `--no-open`: Don't automatically open browser
 
 #### Parameters
 
-- `<input-file>` (required): The compiled Cadenza web application file (e.g., a .cdz file that generates a web UI).
+- `<project-path>`: Path to directory containing `cadenzac.json` or direct path to `cadenzac.json`
+- `<file.cdz>`: Single Cadenza UI component file
 
-#### Description
+#### Multi-Component Projects (Recommended)
 
-The `serve` command compiles and hosts a Cadenza web application, making it accessible via a web browser. This is typically used for testing and demonstrating web UI components.
+**Project Structure:**
+```
+my-ui-project/
+├── cadenzac.json          # Project configuration
+├── components/            # UI components (auto-discovered)
+│   ├── Counter.cdz
+│   ├── Dashboard.cdz
+│   └── Settings.cdz
+└── styles/               # Optional shared styles
+    └── theme.css
+```
+
+**Project Configuration (`cadenzac.json`)**:
+```json
+{
+  "name": "MyUIApp", 
+  "version": "1.0.0",
+  "description": "A multi-component UI application",
+  "build": {
+    "source": "components/",
+    "outputType": "webapp", 
+    "target": "blazor"
+  },
+  "ui": {
+    "navigation": {
+      "showNavigation": true,
+      "homeComponent": "Counter"  
+    },
+    "styles": ["styles/theme.css"]
+  }
+}
+```
+
+#### Features
+
+- **Multi-Component Support**: Auto-discovers all UI components in project
+- **Navigation Generation**: Creates navigation pages for multi-component projects  
+- **Interactive Components**: Full Blazor Server interactivity with SignalR
+- **Real-time Compilation**: Transpiles Cadenza to Blazor on-the-fly
+- **Semantic Styling**: Automatic CSS generation from semantic style declarations
 
 #### Examples
 
 ```bash
-# Serve a web application on the default port
-./bin/release/cadenzac-core --serve examples/counter.cdz
+# Serve a multi-component project
+dotnet run --project src/Cadenza.Core/cadenzac-core.csproj --serve examples/multi-component-project --port 5179
 
-# Serve a web application on a specific port
+# Serve a single component file
+dotnet run --project src/Cadenza.Core/cadenzac-core.csproj --serve examples/counter.cdz --port 5179
+
+# Serve project without opening browser
+dotnet run --project src/Cadenza.Core/cadenzac-core.csproj --serve examples/my-project --no-open
+
+# Using standalone executable
 ./bin/release/cadenzac-core --serve examples/counter.cdz --port 8080
-
-# Using the Cadenza CLI (if aliased or in PATH)
-cadenzac --serve examples/counter.cdz
-cadenzac --serve examples/counter.cdz --port 8080
 ```
 
 ### `new` Command ❌ **Phase 5 - Self-hosting migration**

@@ -131,13 +131,19 @@ public class DirectCompilerCLI
     {
         if (string.IsNullOrEmpty(options.InputFile))
         {
-            Console.Error.WriteLine("Error: Input file required for --serve mode");
+            Console.Error.WriteLine("Error: Input file or project directory required for --serve mode");
             return 1;
         }
         
-        if (!File.Exists(options.InputFile))
+        // Detect if the input is a project directory, cadenzac.json file, or single .cdz file
+        string resolvedPath = ResolveServeInput(options.InputFile);
+        
+        if (resolvedPath == null)
         {
-            Console.Error.WriteLine($"Error: Input file not found: {options.InputFile}");
+            Console.Error.WriteLine($"Error: Could not find valid input - checked for:");
+            Console.Error.WriteLine($"  - Single .cdz file: {options.InputFile}");
+            Console.Error.WriteLine($"  - Project directory: {options.InputFile}/cadenzac.json");
+            Console.Error.WriteLine($"  - Direct cadenzac.json: {options.InputFile}");
             return 1;
         }
         
@@ -145,7 +151,7 @@ public class DirectCompilerCLI
         {
             var serverOptions = new CadenzaWebServerOptions
             {
-                InputFile = options.InputFile,
+                InputFile = resolvedPath,
                 Port = options.Port,
                 OpenBrowser = options.OpenBrowser,
                 HotReload = options.HotReload
@@ -165,6 +171,36 @@ public class DirectCompilerCLI
             }
             return 1;
         }
+    }
+
+    /// <summary>
+    /// Resolves the serve input to determine if it's a single file or project configuration
+    /// </summary>
+    private string? ResolveServeInput(string input)
+    {
+        // Check if it's a direct .cdz file (backward compatibility)
+        if (File.Exists(input) && input.EndsWith(".cdz"))
+        {
+            return input;
+        }
+        
+        // Check if it's a direct cadenzac.json file
+        if (File.Exists(input) && input.EndsWith("cadenzac.json"))
+        {
+            return input;
+        }
+        
+        // Check if it's a project directory containing cadenzac.json
+        if (Directory.Exists(input))
+        {
+            var configPath = Path.Combine(input, "cadenzac.json");
+            if (File.Exists(configPath))
+            {
+                return configPath;
+            }
+        }
+        
+        return null;
     }
 
     private async Task<int> HandleTranspileMode(CLIOptions options)
@@ -409,7 +445,7 @@ public class DirectCompilerCLI
         Console.WriteLine("    cadenzac-core --project [--config <cadenzac.json>] [--output <output.exe>]");
         Console.WriteLine();
         Console.WriteLine("  Web server (self-contained web runtime):");
-        Console.WriteLine("    cadenzac-core --serve <component.cdz> [--port <port>]");
+        Console.WriteLine("    cadenzac-core --serve <component.cdz|project-dir|cadenzac.json> [--port <port>]");
         Console.WriteLine();
         Console.WriteLine("Options:");
         Console.WriteLine("  --compile, -c    Compile directly to assembly (default: transpile)");
@@ -447,7 +483,8 @@ public class DirectCompilerCLI
         Console.WriteLine();
         Console.WriteLine("  # Web server (self-contained web runtime)");
         Console.WriteLine("  cadenzac-core --serve counter.cdz");
-        Console.WriteLine("  cadenzac-core --serve app.cdz --port 8080 --no-open");
+        Console.WriteLine("  cadenzac-core --serve multi-component-project/");
+        Console.WriteLine("  cadenzac-core --serve project/cadenzac.json --port 8080 --no-open");
     }
 }
 

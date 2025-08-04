@@ -4,22 +4,91 @@
 
 ## Quick Start
 
-### 1. Create a New UI Project
+### 1. Multi-Component Projects (Recommended)
+
+The recommended approach for building UI applications is to use a project structure with multiple component files and a `cadenzac.json` configuration:
 
 ```bash
-# Create a new UI project
-cadenzac new --template ui my-ui-app
-cd my-ui-app
+# Build once (from repo root)
+dotnet build src/Cadenza.Core/cadenzac-core.csproj -c Release
 
-# Project structure:
-my-ui-app/
-├── cadenzac.json          # Project configuration  
-├── main.cdz           # Main UI component
-├── components/         # UI components directory
-└── state/             # State management directory
+# Serve a multi-component project
+dotnet run --project src/Cadenza.Core/cadenzac-core.csproj --serve examples/multi-component-project --port 5179
+
+# Flags:
+#   --serve <project-path>  Required; path to directory containing cadenzac.json or direct path to cadenzac.json
+#   --port <number>         Optional; default 5000. If in use, a nearby port is auto-selected  
+#   --no-open               Optional; do not auto-open browser
 ```
 
-### 2. Your First UI Component
+**Project Structure:**
+```
+my-ui-project/
+├── cadenzac.json          # Project configuration
+├── components/            # UI components (auto-discovered)
+│   ├── Counter.cdz       # Individual component files
+│   ├── Dashboard.cdz
+│   └── Settings.cdz
+└── styles/               # Optional shared styles
+    └── theme.css
+```
+
+**Project Configuration (`cadenzac.json`):**
+```json
+{
+  "name": "MyUIApp",
+  "version": "1.0.0",
+  "description": "A multi-component UI application",
+  "build": {
+    "source": "components/",
+    "outputType": "webapp",
+    "target": "blazor"
+  },
+  "ui": {
+    "navigation": {
+      "showNavigation": true,
+      "homeComponent": "Counter"
+    },
+    "styles": ["styles/theme.css"]
+  }
+}
+```
+
+**What happens:**
+- All `.cdz` files in `components/` directory are auto-discovered as UI components
+- A temporary Blazor project is generated under a debug/ folder
+- The project is built and launched (Blazor Server, .NET 10)
+- Navigate to http://localhost:PORT
+  - **Root URL** (`/`): Shows navigation page with project info and links to all components
+  - **Component URLs** (`/counter`, `/dashboard`, `/settings`): Individual components with full interactivity
+
+### 2. Single File Components (Simple)
+
+For quick prototyping or simple components, you can still serve individual `.cdz` files:
+
+```bash
+# Serve a single .cdz UI component
+dotnet run --project src/Cadenza.Core/cadenzac-core.csproj --serve examples/counter.cdz --port 5179
+
+# Or serve the alternative BlazorCounter sample
+dotnet run --project src/Cadenza.Core/cadenzac-core.csproj --serve examples/BlazorCounter.cdz --port 5179
+
+# Flags:
+#   --serve <file.cdz>      Required; a single .cdz file containing component declaration(s)
+#   --port <number>         Optional; default 5000. If in use, a nearby port is auto-selected
+#   --no-open               Optional; do not auto-open browser
+```
+
+**What happens:**
+- **Single component**: Component renders directly at `/` and also at `/{component-name-lower}` (e.g., `/counter`)
+- **Multiple components in one file**: Navigation page shown at `/` with links to individual components
+
+Troubleshooting:
+- If the port is taken, the host will choose another and log it.
+- If buttons render but do not respond, check the browser console and ensure the Blazor script “_framework/blazor.web.js” is loaded (200).
+- Always serve via the host; opening generated files directly in a browser will not wire Blazor interactivity.
+
+### 2. Create a new UI project (planned templates)
 
 **main.cdz:**
 ```cadenza
@@ -76,26 +145,28 @@ component CounterApp()
 }
 ```
 
-### 3. Compile to C# for Blazor
+### 3. Serve any UI component file
 
 ```bash
-# Compile UI component to C# for Blazor
-cadenzac compile --target csharp main.cdz # UI components (marked with -> UIComponent) will be compiled to Blazor-compatible C#
-
-# Generated files (example):
-main.g.cs            # Generated C# Blazor component
-_Imports.razor       # Blazor imports (if needed)
-Project.csproj       # C# project file (if new project)
+# Serve a different component file
+dotnet run --project src/Cadenza.Core/cadenzac-core.csproj -- --serve path/to/YourComponent.cdz --port 5180
 ```
 
-### 4. Run Your UI Application
+Notes:
+- The embedded host parses the .cdz file and generates corresponding Blazor components.
+- Route mapping is name-based: component “Counter” -> route “/counter”.
+- Root route “/” renders the only component if there is a single one; otherwise the host shows an index of components (planned multi-file support).
+
+### 4. Manual transpilation to C# (advanced)
+
+If you need the raw C# output of a .cdz file:
 
 ```bash
-dotnet run
-# Or for development with hot reload:
-dotnet watch run
-# Opens browser at configured Blazor application URL (e.g., https://localhost:5001)
+# Traditional transpilation to a .cs file
+dotnet run --project src/Cadenza.Core/cadenzac-core.csproj -- examples/counter.cdz ./tmp-blazor-out/Counter.g.cs
 ```
+
+Then include the generated C# into your own Blazor project manually. This flow is useful for custom integration, but for quick testing prefer --serve.
 
 ## Core Concepts for LLM Developers
 
@@ -588,10 +659,10 @@ event_handler handle_login_success(user: User) {
 
 ## Next Steps
 
-1. **Try the Examples**: Start with the simple counter example
-2. **Build a Todo App**: Follow the full-stack todo example
-3. **Explore API Integration**: Connect your frontend to backend services
-4. **Read the Language Reference**: Deep dive into Cadenza UI syntax
-5. **Join the Community**: Get help from other Cadenza developers
+1. Run the embedded host: see “Run the Counter sample in server mode (Blazor host)” above.
+2. Explore examples in the examples/ folder, especially [`examples/counter.cdz`](examples/counter.cdz:1).
+3. Read how components are mapped and routed in the host; routes are derived from component names.
+4. Use browser DevTools Network and Console to verify the Blazor runtime script loads and that clicks dispatch without errors.
+5. For deeper integration, transpile to C# and embed in your own Blazor project.
 
 Cadenza UI components make frontend development predictable, type-safe, and LLM-friendly. Every aspect of your application is explicit and traceable, making it perfect for AI-assisted development! 🎉

@@ -1,20 +1,37 @@
-component BlazorCounter -> UIComponent {
-    state {
-        currentCount: Int32 = 0
+component BlazorCounter() -> UIComponent {
+    declare_state currentCount: int = 0
+    
+    event_handler handle_increment() uses [DOM] {
+        set_state(currentCount, currentCount + 1)
     }
-
-    effectful function incrementCount() uses [State] {
-        set_state(current => { currentCount: current.currentCount + 1 })
-    }
-
-    view {
-        div {
-            h1 { "Counter" }
-
-            p { "Current count: ${state.currentCount}" }
-
-            button(class: "btn btn-primary", onclick: incrementCount) {
-                "Click me"
+    
+    render {
+        container(
+            class: "semantic: padding:lg, flex-column, center",
+            style: "semantic: background:background-alt"
+        ) {
+            heading(
+                level: 1, 
+                text: "Counter: " + currentCount.toString(),
+                class: "semantic: text:primary, margin:md"
+            )
+            container(
+                class: "semantic: flex, gap:md"
+            ) {
+                button(
+                    text: "Click me",
+                    on_click: handle_increment,
+                    class: "btn-primary"
+                )
+            }
+            container(
+                class: "semantic: margin:md, text:center"
+            ) {
+                heading(
+                    level: 3,
+                    text: "Status: OK",
+                    class: "text-muted"
+                )
             }
         }
     }

@@ -1,0 +1,16 @@
+{
+  "name": "MultiComponentDemo",
+  "version": "1.0.0",
+  "description": "Multi-component navigation demo showcasing Cadenza UI components",
+  "build": {
+    "source": "components/",
+    "outputType": "webapp",
+    "target": "blazor"
+  },
+  "ui": {
+    "navigation": {
+      "showNavigation": true,
+      "homeComponent": "Counter"
+    }
+  }
+}

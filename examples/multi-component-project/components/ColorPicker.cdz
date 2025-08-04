@@ -1,0 +1,72 @@
+// Color Picker Component - Interactive color selection with dynamic styling
+
+component ColorPicker() -> UIComponent {
+    declare_state selected_color: string = "red"
+    
+    event_handler handle_red_select() uses [DOM] {
+        set_state(selected_color, "red")
+    }
+    
+    event_handler handle_green_select() uses [DOM] {
+        set_state(selected_color, "green")
+    }
+    
+    event_handler handle_blue_select() uses [DOM] {
+        set_state(selected_color, "blue")
+    }
+    
+    event_handler handle_purple_select() uses [DOM] {
+        set_state(selected_color, "purple")
+    }
+    
+    event_handler handle_orange_select() uses [DOM] {
+        set_state(selected_color, "orange")
+    }
+    
+    render {
+        container(
+            class: "semantic: padding:lg, flex-column, center",
+            style: "semantic: background:" + selected_color + "-light"
+        ) {
+            heading(
+                level: 1, 
+                text: "Color Picker Component",
+                class: "semantic: text:" + selected_color + ", margin:md"
+            )
+            heading(
+                level: 3, 
+                text: "Selected: " + selected_color,
+                class: "semantic: text:dark, margin:md"
+            )
+            container(
+                class: "semantic: flex, gap:sm, flex-wrap"
+            ) {
+                button(
+                    text: "red",
+                    on_click: handle_red_select,
+                    class: "btn-red"
+                )
+                button(
+                    text: "green",
+                    on_click: handle_green_select,
+                    class: "btn-green"
+                )
+                button(
+                    text: "blue",
+                    on_click: handle_blue_select,
+                    class: "btn-blue"
+                )
+                button(
+                    text: "purple",
+                    on_click: handle_purple_select,
+                    class: "btn-purple"
+                )
+                button(
+                    text: "orange",
+                    on_click: handle_orange_select,
+                    class: "btn-orange"
+                )
+            }
+        }
+    }
+}
