@@ -33,6 +33,8 @@ public class CadenzaWebServer
     private readonly CadenzaWebServerOptions _options;
     private readonly BlazorProjectGenerator _projectGenerator;
     private string? _currentProjectDir;
+    private System.Diagnostics.Process? _currentProcess;
+    private volatile bool _isShuttingDown = false;
     
     public CadenzaWebServer(CadenzaWebServerOptions options)
     {
@@ -42,6 +44,9 @@ public class CadenzaWebServer
         // Setup cleanup on process termination
         Console.CancelKeyPress += (sender, e) => {
             e.Cancel = true; // Prevent immediate termination
+            Console.WriteLine("\n🛑 Shutting down server...");
+            _isShuttingDown = true;
+            TerminateBlazorProcess();
             CleanupTempDirectory();
             Environment.Exit(0);
         };
@@ -127,7 +132,8 @@ public class CadenzaWebServer
         }
         finally
         {
-            // Clean up temporary directory
+            // Ensure process is terminated and clean up temporary directory
+            TerminateBlazorProcess();
             CleanupTempDirectory();
         }
     }
@@ -164,22 +170,258 @@ public class CadenzaWebServer
     }
 
     /// <summary>
-    /// Cleans up the temporary project directory
+    /// Terminates the running Blazor process gracefully with fallback to force kill
+    /// </summary>
+    private void TerminateBlazorProcess()
+    {
+        if (_currentProcess != null)
+        {
+            int processId = -1;
+            try
+            {
+                // Capture process ID before potential disposal
+                if (!_currentProcess.HasExited)
+                {
+                    processId = _currentProcess.Id;
+                    Console.WriteLine($"🔄 Terminating Blazor process (PID: {processId})...");
+                }
+                else
+                {
+                    Console.WriteLine("✅ Blazor process already exited");
+                    return;
+                }
+                
+                // First attempt: Send SIGTERM (graceful shutdown signal)
+                try
+                {
+                    _currentProcess.CloseMainWindow();
+                    if (_currentProcess.WaitForExit(2000))
+                    {
+                        Console.WriteLine("✅ Blazor process terminated gracefully");
+                        return;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"🔄 Graceful termination failed: {ex.Message}");
+                }
+                
+                // Second attempt: Force kill the main process
+                Console.WriteLine("⚡ Force killing Blazor process...");
+                try
+                {
+                    _currentProcess.Kill(entireProcessTree: true); // Kill entire process tree
+                    if (_currentProcess.WaitForExit(3000))
+                    {
+                        Console.WriteLine("✅ Blazor process force-killed successfully");
+                        return;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"⚠️  Force kill failed: {ex.Message}");
+                }
+                
+                // Third attempt: Kill by process name (for Windows/WSL compatibility)
+                Console.WriteLine("🔧 Attempting to kill dotnet processes...");
+                try
+                {
+                    var processName = "dotnet";
+                    var processes = System.Diagnostics.Process.GetProcessesByName(processName);
+                    foreach (var proc in processes)
+                    {
+                        try
+                        {
+                            // Only kill processes that are likely our Blazor app
+                            if (proc.ProcessName == processName && 
+                                proc.StartTime > DateTime.Now.AddMinutes(-5)) // Started recently
+                            {
+                                proc.Kill();
+                                Console.WriteLine($"🔧 Killed dotnet process (PID: {proc.Id})");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"🔧 Could not kill process {proc.Id}: {ex.Message}");
+                        }
+                    }
+                    
+                    // Give time for file handles to be released
+                    Thread.Sleep(1000);
+                    Console.WriteLine("✅ Process cleanup completed");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"⚠️  Process cleanup failed: {ex.Message}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"⚠️  Warning: Error terminating Blazor process: {ex.Message}");
+            }
+            finally
+            {
+                _currentProcess?.Dispose();
+                _currentProcess = null;
+                
+                // Additional delay to ensure file handles are released in Windows/WSL
+                Console.WriteLine("⏳ Waiting for file handles to be released...");
+                Thread.Sleep(2000);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Cleans up the temporary project directory with retry logic and selective cleanup
     /// </summary>
     private void CleanupTempDirectory()
     {
         if (!string.IsNullOrEmpty(_currentProjectDir) && Directory.Exists(_currentProjectDir))
         {
-            try
+            const int maxRetries = 5;
+            const int baseDelayMs = 500;
+            bool showVerboseOutput = false; // Only show verbose output if needed
+            
+            Console.WriteLine($"🧹 Cleaning up temporary directory...");
+            
+            for (int attempt = 1; attempt <= maxRetries; attempt++)
             {
-                Console.WriteLine($"🧹 Cleaning up temporary directory: {_currentProjectDir}");
-                Directory.Delete(_currentProjectDir, true);
-                _currentProjectDir = null;
+                try
+                {
+                    // First attempt: try to clear build output directories specifically
+                    if (attempt == 1)
+                    {
+                        CleanupBuildOutputDirectories(_currentProjectDir, showVerboseOutput);
+                    }
+                    
+                    // Now try to delete the entire directory
+                    Directory.Delete(_currentProjectDir, true);
+                    _currentProjectDir = null;
+                    Console.WriteLine("✅ Temporary directory cleaned up successfully");
+                    return; // Success!
+                }
+                catch (UnauthorizedAccessException) when (attempt < maxRetries)
+                {
+                    if (attempt == 1)
+                    {
+                        Console.WriteLine($"⏳ Some files are locked, retrying cleanup...");
+                        showVerboseOutput = true; // Show details on subsequent attempts
+                    }
+                    Thread.Sleep(baseDelayMs * attempt); // Exponential backoff
+                }
+                catch (IOException) when (attempt < maxRetries)
+                {
+                    if (attempt == 1)
+                    {
+                        Console.WriteLine($"⏳ Directory in use, retrying cleanup...");
+                        showVerboseOutput = true; // Show details on subsequent attempts
+                    }
+                    Thread.Sleep(baseDelayMs * attempt); // Exponential backoff
+                }
+                catch (Exception ex)
+                {
+                    if (attempt == maxRetries)
+                    {
+                        Console.WriteLine($"⚠️  Warning: Could not fully clean up temporary directory: {ex.Message}");
+                        Console.WriteLine($"   Directory: {Path.GetFileName(_currentProjectDir)}");
+                    }
+                    else
+                    {
+                        if (attempt == 1)
+                        {
+                            Console.WriteLine($"⏳ Cleanup encountered issues, retrying...");
+                            showVerboseOutput = true;
+                        }
+                        Thread.Sleep(baseDelayMs * attempt);
+                    }
+                }
             }
-            catch (Exception ex)
+        }
+    }
+
+    /// <summary>
+    /// Attempts to clean up build output directories that commonly have locked files
+    /// </summary>
+    private void CleanupBuildOutputDirectories(string projectDir, bool verbose = false)
+    {
+        try
+        {
+            var buildDirs = new[] { "bin", "obj" };
+            
+            foreach (var buildDir in buildDirs)
             {
-                Console.WriteLine($"⚠️  Warning: Could not clean up temporary directory: {ex.Message}");
+                var fullPath = Path.Combine(projectDir, buildDir);
+                if (Directory.Exists(fullPath))
+                {
+                    try
+                    {
+                        Directory.Delete(fullPath, true);
+                        if (verbose) Console.WriteLine($"✅ Cleaned {buildDir} directory");
+                    }
+                    catch (Exception ex)
+                    {
+                        if (verbose) Console.WriteLine($"⚠️  Could not clean {buildDir}: {ex.Message}");
+                        
+                        // Try to delete individual files in the directory  
+                        CleanupFilesSelectively(fullPath, verbose);
+                    }
+                }
             }
+        }
+        catch (Exception ex)
+        {
+            if (verbose) Console.WriteLine($"⚠️  Error during build directory cleanup: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Attempts to delete files selectively, skipping locked files
+    /// </summary>
+    private void CleanupFilesSelectively(string directory, bool verbose = false)
+    {
+        try
+        {
+            int deletedCount = 0;
+            int skippedCount = 0;
+            
+            foreach (var file in Directory.GetFiles(directory, "*", SearchOption.AllDirectories))
+            {
+                try
+                {
+                    File.Delete(file);
+                    deletedCount++;
+                }
+                catch (Exception ex)
+                {
+                    skippedCount++;
+                    if (verbose) Console.WriteLine($"🔧 Skipped locked file: {Path.GetFileName(file)}");
+                }
+            }
+
+            // Try to remove empty directories
+            foreach (var dir in Directory.GetDirectories(directory, "*", SearchOption.AllDirectories).OrderByDescending(d => d.Length))
+            {
+                try
+                {
+                    if (!Directory.EnumerateFileSystemEntries(dir).Any())
+                    {
+                        Directory.Delete(dir);
+                    }
+                }
+                catch (Exception)
+                {
+                    // Ignore errors removing directories
+                }
+            }
+            
+            if (verbose && (deletedCount > 0 || skippedCount > 0))
+            {
+                Console.WriteLine($"🔧 Selective cleanup: {deletedCount} files deleted, {skippedCount} files skipped");
+            }
+        }
+        catch (Exception ex)
+        {
+            if (verbose) Console.WriteLine($"⚠️  Error during selective cleanup: {ex.Message}");
         }
     }
 
@@ -218,10 +460,10 @@ public class CadenzaWebServer
         Console.WriteLine($"🔧 Executing: dotnet {arguments}");
         Console.WriteLine($"🔧 Environment: ASPNETCORE_URLS=http://localhost:{availablePort}");
 
-        using var process = new System.Diagnostics.Process { StartInfo = startInfo };
+        _currentProcess = new System.Diagnostics.Process { StartInfo = startInfo };
         
         // Handle process output
-        process.OutputDataReceived += (sender, e) =>
+        _currentProcess.OutputDataReceived += (sender, e) =>
         {
             if (!string.IsNullOrEmpty(e.Data))
             {
@@ -229,7 +471,7 @@ public class CadenzaWebServer
             }
         };
         
-        process.ErrorDataReceived += (sender, e) =>
+        _currentProcess.ErrorDataReceived += (sender, e) =>
         {
             if (!string.IsNullOrEmpty(e.Data))
             {
@@ -239,14 +481,14 @@ public class CadenzaWebServer
 
         try
         {
-            process.Start();
-            process.BeginOutputReadLine();
-            process.BeginErrorReadLine();
+            _currentProcess.Start();
+            _currentProcess.BeginOutputReadLine();
+            _currentProcess.BeginErrorReadLine();
             
             Console.WriteLine($"✅ Blazor server started!");
             Console.WriteLine($"   URL: http://localhost:{availablePort}");
             Console.WriteLine($"   Component: {_options.InputFile}");
-            Console.WriteLine($"   Process ID: {process.Id}");
+            Console.WriteLine($"   Process ID: {_currentProcess.Id}");
             
             if (_options.OpenBrowser)
             {
@@ -259,14 +501,32 @@ public class CadenzaWebServer
             Console.WriteLine("Press Ctrl+C to stop the server.");
             
             // Wait for the process to exit or be cancelled
-            await process.WaitForExitAsync();
-            
-            Console.WriteLine($"Blazor server stopped with exit code: {process.ExitCode}");
+            try
+            {
+                await _currentProcess.WaitForExitAsync();
+                
+                if (!_isShuttingDown)
+                {
+                    Console.WriteLine($"Blazor server stopped with exit code: {_currentProcess.ExitCode}");
+                }
+            }
+            catch (InvalidOperationException)
+            {
+                // Process was already disposed by termination handler - this is expected during Ctrl+C
+                if (!_isShuttingDown)
+                {
+                    throw; // Only re-throw if this wasn't an intentional shutdown
+                }
+            }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"❌ Error starting Blazor project: {ex.Message}");
-            throw;
+            // Only show error if this wasn't an intentional shutdown
+            if (!_isShuttingDown)
+            {
+                Console.WriteLine($"❌ Error starting Blazor project: {ex.Message}");
+                throw;
+            }
         }
     }
     
@@ -474,7 +734,9 @@ public class BlazorProjectGenerator
         foreach (var component in components)
         {
             // Generate direct ComponentBase class (explicit over implicit)
-            var blazorCode = _blazorGenerator.GenerateBlazorComponent(component);
+            // For files with multiple components, don't include RouteAttribute - let Routes.razor handle routing
+            var includeRouteAttribute = components.Count == 1;  // Only use RouteAttribute for single components
+            var blazorCode = _blazorGenerator.GenerateBlazorComponent(component, includeRouteAttribute);
 
             // Write to Components/Pages directory to match namespace
             var componentPath = Path.Combine(outputDir, "Components", "Pages", $"{component.Name}.cs");
@@ -514,7 +776,8 @@ public class BlazorProjectGenerator
         foreach (var component in components)
         {
             // Generate direct ComponentBase class (explicit over implicit)
-            var blazorCode = _blazorGenerator.GenerateBlazorComponent(component);
+            // For multi-component projects, include RouteAttribute for proper Blazor routing
+            var blazorCode = _blazorGenerator.GenerateBlazorComponent(component, includeRouteAttribute: true);
 
             // Write to Components/Pages directory to match namespace
             var componentPath = Path.Combine(outputDir, "Components", "Pages", $"{component.Name}.cs");
@@ -526,6 +789,12 @@ public class BlazorProjectGenerator
             allComponentCSS.AppendLine($"/* Component: {component.Name} */");
             allComponentCSS.AppendLine(componentCSS);
             allComponentCSS.AppendLine();
+        }
+
+        // Generate Home component for navigation if we have multiple components
+        if (components.Count > 1)
+        {
+            await GenerateHomeComponentAsync(outputDir, components, config);
         }
 
         // Write the combined CSS file
@@ -784,49 +1053,13 @@ public class BlazorProjectGenerator
         var appPath = Path.Combine(outputDir, "App.razor");
         await File.WriteAllTextAsync(appPath, appContent);
 
-        // Routes.razor – dynamic router based on project configuration
+        // Routes.razor – manual routing with auto-generated component routes
         var routeConditions = new StringBuilder();
-        var homeComponent = !string.IsNullOrEmpty(config.UI.Navigation.HomeComponent) 
-            ? config.UI.Navigation.HomeComponent 
-            : components.FirstOrDefault()?.Name ?? "Counter";
         
-        // Generate routing logic
-        // Handle root route first
+        // Generate route for Home component (root)
         routeConditions.AppendLine("            @if (NavigationManager.ToBaseRelativePath(NavigationManager.Uri) == \"\")");
         routeConditions.AppendLine("            {");
-        
-        if (config.UI.Navigation.ShowNavigation && components.Count > 1)
-        {
-            // Multiple components with navigation enabled - show navigation
-            routeConditions.AppendLine("                <div class=\"component-navigation\">");
-            routeConditions.AppendLine($"                    <h1>{projectTitle}</h1>");
-            if (!string.IsNullOrEmpty(projectDescription))
-            {
-                routeConditions.AppendLine($"                    <p>{projectDescription}</p>");
-            }
-            routeConditions.AppendLine("                    <p>Select a component to view:</p>");
-            routeConditions.AppendLine("                    <ul class=\"component-list\">");
-            
-            foreach (var component in components)
-            {
-                var componentRoute = component.Name.ToLowerInvariant();
-                routeConditions.AppendLine($"                        <li><a href=\"/{componentRoute}\">{component.Name}</a></li>");
-            }
-            
-            routeConditions.AppendLine("                    </ul>");
-            routeConditions.AppendLine("                </div>");
-        }
-        else if (components.Count == 1 || !config.UI.Navigation.ShowNavigation)
-        {
-            // Single component or navigation disabled - show home component directly
-            var targetComponent = components.FirstOrDefault(c => c.Name == homeComponent) ?? components.First();
-            routeConditions.AppendLine($"                <{targetComponent.Name} @rendermode=\"InteractiveServer\" />");
-        }
-        else
-        {
-            routeConditions.AppendLine("                <div>No components found</div>");
-        }
-        
+        routeConditions.AppendLine("                <Home @rendermode=\"InteractiveServer\" />");
         routeConditions.AppendLine("            }");
         
         // Generate route conditions for each component
@@ -878,6 +1111,76 @@ public class BlazorProjectGenerator
         await File.WriteAllTextAsync(routesPath, routesContent);
 
         Console.WriteLine($"🔧 Generated App.razor and Routes.razor for project '{projectTitle}' (supporting {components.Count} component(s))");
+    }
+    
+    /// <summary>
+    /// Generates a Home component for multi-component navigation
+    /// </summary>
+    private async Task GenerateHomeComponentAsync(string outputDir, List<ComponentDeclaration> components, UIProjectConfig config)
+    {
+        var projectTitle = !string.IsNullOrEmpty(config.Name) ? config.Name : "Cadenza Components";
+        var projectDescription = config.Description;
+        
+        var homeComponentCode = $@"// <auto-generated>
+// This file was generated by the Cadenza compiler. Do not edit manually.
+// Home component for multi-component navigation
+
+using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Rendering;
+
+namespace CadenzaWebApp.Components.Pages
+{{
+    [Microsoft.AspNetCore.Components.RouteAttribute(""/"")]
+    public class Home : ComponentBase
+    {{
+        protected override void BuildRenderTree(RenderTreeBuilder builder)
+        {{
+            builder.OpenElement(0, ""div"");
+            builder.AddAttribute(1, ""class"", ""component-navigation"");
+            
+            builder.OpenElement(2, ""h1"");
+            builder.AddContent(3, ""{projectTitle}"");
+            builder.CloseElement();
+            
+            {(string.IsNullOrEmpty(projectDescription) ? "" : $@"builder.OpenElement(4, ""p"");
+            builder.AddContent(5, ""{projectDescription}"");
+            builder.CloseElement();
+            ")}
+            
+            builder.OpenElement(6, ""p"");
+            builder.AddContent(7, ""Select a component to view:"");
+            builder.CloseElement();
+            
+            builder.OpenElement(8, ""ul"");
+            builder.AddAttribute(9, ""class"", ""component-list"");";
+
+        // Generate navigation links for each component
+        int elementIndex = 10;
+        foreach (var component in components)
+        {
+            var componentRoute = component.Name.ToLowerInvariant();
+            homeComponentCode += $@"
+            
+            builder.OpenElement({elementIndex++}, ""li"");
+            builder.OpenElement({elementIndex++}, ""a"");
+            builder.AddAttribute({elementIndex++}, ""href"", ""/{componentRoute}"");
+            builder.AddContent({elementIndex++}, ""{component.Name}"");
+            builder.CloseElement();
+            builder.CloseElement();";
+        }
+        
+        homeComponentCode += $@"
+            
+            builder.CloseElement(); // ul
+            builder.CloseElement(); // div
+        }}
+    }}
+}}";
+        
+        var homePath = Path.Combine(outputDir, "Components", "Pages", "Home.cs");
+        await File.WriteAllTextAsync(homePath, homeComponentCode);
+        
+        Console.WriteLine($"   Generated Home component for navigation");
     }
     
     // Removed hardcoded Home component generation. Root behavior is handled by Routes.razor.

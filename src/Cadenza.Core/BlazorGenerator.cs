@@ -25,7 +25,7 @@ namespace Cadenza.Core
         /// <summary>
         /// Generates a Blazor ComponentBase class from a Cadenza ComponentDeclaration
         /// </summary>
-        public string GenerateBlazorComponent(ComponentDeclaration component)
+        public string GenerateBlazorComponent(ComponentDeclaration component, bool includeRouteAttribute = true)
         {
             _classContent.Clear();
             _usedNamespaces.Clear();
@@ -37,7 +37,7 @@ namespace Cadenza.Core
             AddRequiredNamespaces(component);
             
             // Generate class content
-            GenerateComponentClass(component);
+            GenerateComponentClass(component, includeRouteAttribute);
             
             // Combine using statements and class
             var result = new StringBuilder();
@@ -89,11 +89,14 @@ namespace Cadenza.Core
         /// <summary>
         /// Generates the complete component class
         /// </summary>
-        private void GenerateComponentClass(ComponentDeclaration component)
+        private void GenerateComponentClass(ComponentDeclaration component, bool includeRouteAttribute = true)
         {
-            // Add RouteAttribute for Blazor Router (equivalent to @page directive)
-            // Use proper route format with leading slash
-            _classContent.AppendLine($"[Microsoft.AspNetCore.Components.RouteAttribute(\"/{component.Name.ToLower()}\")]");
+            // Add RouteAttribute for Blazor Router (equivalent to @page directive) only if requested
+            if (includeRouteAttribute)
+            {
+                // Use proper route format with leading slash
+                _classContent.AppendLine($"[Microsoft.AspNetCore.Components.RouteAttribute(\"/{component.Name.ToLower()}\")]");
+            }
             _classContent.AppendLine($"public class {component.Name} : ComponentBase");
             _classContent.AppendLine("{");
             

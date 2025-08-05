@@ -504,10 +504,10 @@ public class EnhancedBlazorGenerator : BlazorGenerator
     /// <summary>
     /// Generates Blazor component with semantic styling support (CSS handled separately)
     /// </summary>
-    public new string GenerateBlazorComponent(ComponentDeclaration component)
+    public new string GenerateBlazorComponent(ComponentDeclaration component, bool includeRouteAttribute = true)
     {
         // Generate base component without CSS embedding
-        var blazorCode = base.GenerateBlazorComponent(component);
+        var blazorCode = base.GenerateBlazorComponent(component, includeRouteAttribute);
         
         // CSS is generated separately via GenerateComponentCSS method
         return blazorCode;
