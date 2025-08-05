@@ -492,32 +492,3 @@ public class SemanticClass
 /// <summary>
 /// Enhanced Blazor generator with semantic styling support
 /// </summary>
-public class EnhancedBlazorGenerator : BlazorGenerator
-{
-    private readonly CadenzaSemanticStyling _semanticStyling;
-    
-    public EnhancedBlazorGenerator()
-    {
-        _semanticStyling = new CadenzaSemanticStyling();
-    }
-    
-    /// <summary>
-    /// Generates Blazor component with semantic styling support (CSS handled separately)
-    /// </summary>
-    public new string GenerateBlazorComponent(ComponentDeclaration component, bool includeRouteAttribute = true)
-    {
-        // Generate base component without CSS embedding
-        var blazorCode = base.GenerateBlazorComponent(component, includeRouteAttribute);
-        
-        // CSS is generated separately via GenerateComponentCSS method
-        return blazorCode;
-    }
-    
-    /// <summary>
-    /// Gets the generated CSS for a component
-    /// </summary>
-    public string GenerateComponentCSS(ComponentDeclaration component)
-    {
-        return _semanticStyling.ProcessComponentStyling(component);
-    }
-}

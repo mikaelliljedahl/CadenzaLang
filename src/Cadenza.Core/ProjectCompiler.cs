@@ -191,6 +191,7 @@ namespace Cadenza.Core
                 // Find entry point (only required for executables)
                 var isLibrary = config.Build.OutputType == "library" || 
                                config.Build.OutputType == "dll" ||
+                               config.Build.OutputType == "webapp" ||  // Webapp projects don't need main()
                                options.Library;
                                
                 var entryPoint = FindEntryPoint(config, compilationOrder);

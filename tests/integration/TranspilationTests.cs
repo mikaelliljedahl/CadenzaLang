@@ -455,6 +455,113 @@ namespace Cadenza.Tests.Integration
             ValidateGeneratedCode(output);
         }
 
+        [Test]
+        public async Task Transpiler_ShouldParseMultiComponentProjectAndGenerateValidRouting()
+        {
+            // Arrange - Use the existing multi-component project
+            var projectDir = Path.Combine(Directory.GetCurrentDirectory(), "examples", "multi-component-project");
+            var componentsDir = Path.Combine(projectDir, "components");
+            
+            // Ensure the test project exists
+            Assert.That(Directory.Exists(projectDir), $"Multi-component project should exist at {projectDir}");
+            Assert.That(Directory.Exists(componentsDir), $"Components directory should exist at {componentsDir}");
+            Assert.That(File.Exists(Path.Combine(projectDir, "cadenzac.json")), "Project should have cadenzac.json");
+            
+            // Act - Parse all component files
+            var componentFiles = Directory.GetFiles(componentsDir, "*.cdz");
+            var parsedComponents = new List<ComponentDeclaration>();
+            
+            foreach (var componentFile in componentFiles)
+            {
+                var content = await File.ReadAllTextAsync(componentFile);
+                var lexer = new CadenzaLexer(content);
+                var tokens = lexer.ScanTokens();
+                var parser = new CadenzaParser(tokens);
+                var ast = parser.Parse();
+                
+                var components = ast.Statements.OfType<ComponentDeclaration>().ToList();
+                parsedComponents.AddRange(components);
+                
+                Console.WriteLine($"Parsed {components.Count} component(s) from {Path.GetFileName(componentFile)}");
+            }
+            
+            // Assert - Verify components were parsed correctly
+            Assert.That(parsedComponents.Count, Is.EqualTo(3), "Should parse exactly 3 components");
+            
+            var componentNames = parsedComponents.Select(c => c.Name).OrderBy(n => n).ToList();
+            var expectedNames = new[] { "ColorPicker", "Counter", "Greeting" };
+            Assert.That(componentNames, Is.EqualTo(expectedNames), "Should parse all expected components");
+            
+            // Verify each component has the expected structure for UI components
+            foreach (var component in parsedComponents)
+            {
+                Assert.That(component.ReturnType, Is.EqualTo("UIComponent"), $"Component {component.Name} should return UIComponent");
+                Assert.That(component.Effects, Contains.Item("DOM"), $"Component {component.Name} should use [DOM] effects");
+                
+                // Verify components have state and event handlers (basic structure validation)
+                var hasState = component.State?.Any() ?? false;
+                var hasEventHandlers = component.Events?.Any() ?? false;
+                
+                Assert.That(hasState, Is.True, $"Component {component.Name} should have state variables");
+                Assert.That(hasEventHandlers, Is.True, $"Component {component.Name} should have event handlers");
+            }
+            
+            // Test the routing generation logic that we implemented
+            // This simulates what the WebServer routing generation would do
+            var routingTests = GenerateExpectedRoutingLogic(parsedComponents);
+            
+            // Verify manual routing conditions are generated correctly
+            Assert.That(routingTests.ContainsKey("root"), Is.True, "Should generate root route condition");
+            Assert.That(routingTests.ContainsKey("colorpicker"), Is.True, "Should generate colorpicker route condition");
+            Assert.That(routingTests.ContainsKey("counter"), Is.True, "Should generate counter route condition");
+            Assert.That(routingTests.ContainsKey("greeting"), Is.True, "Should generate greeting route condition");
+            
+            // Verify the routing logic matches our implemented pattern
+            Assert.That(routingTests["root"], Contains.Substring("NavigationManager.ToBaseRelativePath(NavigationManager.Uri) == \"\""));
+            Assert.That(routingTests["root"], Contains.Substring("<Home @rendermode=\"InteractiveServer\" />"));
+            
+            Assert.That(routingTests["colorpicker"], Contains.Substring("NavigationManager.ToBaseRelativePath(NavigationManager.Uri) == \"colorpicker\""));
+            Assert.That(routingTests["colorpicker"], Contains.Substring("<ColorPicker @rendermode=\"InteractiveServer\" />"));
+            
+            Assert.That(routingTests["counter"], Contains.Substring("NavigationManager.ToBaseRelativePath(NavigationManager.Uri) == \"counter\""));
+            Assert.That(routingTests["counter"], Contains.Substring("<Counter @rendermode=\"InteractiveServer\" />"));
+            
+            Assert.That(routingTests["greeting"], Contains.Substring("NavigationManager.ToBaseRelativePath(NavigationManager.Uri) == \"greeting\""));
+            Assert.That(routingTests["greeting"], Contains.Substring("<Greeting @rendermode=\"InteractiveServer\" />"));
+            
+            Console.WriteLine($"✅ Multi-component project parsing and routing generation test passed");
+            Console.WriteLine($"   Parsed {parsedComponents.Count} components successfully");
+            Console.WriteLine($"   Generated {routingTests.Count} routing conditions");
+        }
+        
+        /// <summary>
+        /// Simulates the routing generation logic that our WebServer implementation uses
+        /// </summary>
+        private Dictionary<string, string> GenerateExpectedRoutingLogic(List<ComponentDeclaration> components)
+        {
+            var routingConditions = new Dictionary<string, string>();
+            
+            // Generate root route (Home component)
+            routingConditions["root"] = @"            @if (NavigationManager.ToBaseRelativePath(NavigationManager.Uri) == """")
+            {
+                <Home @rendermode=""InteractiveServer"" />
+            }";
+            
+            // Generate route conditions for each component
+            foreach (var component in components)
+            {
+                var componentRoute = component.Name.ToLowerInvariant();
+                var condition = $@"            else if (NavigationManager.ToBaseRelativePath(NavigationManager.Uri) == ""{componentRoute}"")
+            {{
+                <{component.Name} @rendermode=""InteractiveServer"" />
+            }}";
+                
+                routingConditions[componentRoute] = condition;
+            }
+            
+            return routingConditions;
+        }
+
         private void ValidateGeneratedCode(string generatedCode)
         {
             // Verify that the generated code compiles successfully

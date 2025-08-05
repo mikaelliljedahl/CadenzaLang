@@ -141,7 +141,7 @@ public class CadenzaTranspiler
     {
         try
         {
-            var blazorGenerator = new BlazorGenerator();
+            var blazorGenerator = new EnhancedBlazorGenerator();
             var blazorContent = new System.Text.StringBuilder();
             
             // Generate Blazor components from AST

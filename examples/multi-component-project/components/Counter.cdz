@@ -1,6 +1,6 @@
 // Counter Component - Interactive counter with increment/decrement
 
-component Counter() -> UIComponent {
+component Counter() uses [DOM] -> UIComponent {
     declare_state count: int = 0
     
     event_handler handle_increment() uses [DOM] {

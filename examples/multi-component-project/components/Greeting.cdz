@@ -1,6 +1,6 @@
 // Greeting Component - Dynamic greeting with customizable name and message
 
-component Greeting() -> UIComponent {
+component Greeting() uses [DOM] -> UIComponent {
     declare_state name: string = "World"
     declare_state message: string = "Hello"
     

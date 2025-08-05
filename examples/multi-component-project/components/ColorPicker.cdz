@@ -1,6 +1,6 @@
 // Color Picker Component - Interactive color selection with dynamic styling
 
-component ColorPicker() -> UIComponent {
+component ColorPicker() uses [DOM] -> UIComponent {
     declare_state selected_color: string = "red"
     
     event_handler handle_red_select() uses [DOM] {
