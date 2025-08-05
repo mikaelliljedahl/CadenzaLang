@@ -1,0 +1,19 @@
+function divide(a: int, b: int) -> Result<int, string> {
+    if b == 0 {
+        return Error("Division by zero")
+    }
+    return Ok(a / b)
+}
+
+function main() -> int {
+    let result = divide(10, 2)
+    
+    match result {
+        Ok(value) -> {
+            return 0
+        }
+        Error(message) -> {
+            return 1
+        }
+    }
+}

@@ -2,41 +2,80 @@
 
 ## 1. Introduction
 
-**To the Compiler Developer:** This document serves as a comprehensive guide for implementing the Cadenza frontend compiler, specifically targeting the Blazor framework. Your primary objective is to translate Cadenza's declarative UI syntax into equivalent C# code that leverages Blazor's `RenderTreeBuilder` API. The examples provided illustrate the precise mapping from Cadenza source to the expected C# output. Adherence to these mappings is crucial for ensuring correct functionality and performance.
+**Current Implementation Status:** This document provides a realistic implementation plan for Cadenza frontend compilation targeting Blazor, based on the current compiler capabilities as of January 2025. Unlike idealized specifications, this focuses on what can be implemented with the existing parser and transpiler infrastructure.
 
-**Core Technology:** Unlike traditional Blazor development that often uses `.razor` files, our approach compiles directly to C# classes. These classes will programmatically construct the UI using `Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder`. This method provides fine-grained, type-safe control over the rendering process and aligns with Cadenza's compilation philosophy.
+**Core Technology:** Cadenza UI components compile directly to C# classes that inherit from `ComponentBase` and use Blazor's `RenderTreeBuilder` API. This approach provides type-safe, efficient UI rendering while maintaining compatibility with the existing Cadenza compilation pipeline.
 
-**Implicit Blazor Targeting:** When a Cadenza component is declared with `-> UIComponent`, the compiler automatically understands that it is a frontend component. When compiling to the `--target csharp`, these `UIComponent`s will be transpiled into Blazor-compatible C# classes. There is no separate `--target blazor` flag; the C# target implicitly handles Blazor UI components.
+**Current Parser Limitations:** The Cadenza parser currently supports basic UI component syntax but has limitations that affect the frontend specification:
+- UI elements require function-call syntax: `div()` instead of `div`
+- Limited lambda expression support in UI contexts
+- Basic expression parsing in attributes
+- No type definition parsing for complex UI models
 
-**Key Concept: Sequence Numbers:** Throughout the `BuildRenderTree` method, you will observe integer arguments (e.g., `builder.OpenElement(0, "h1")`). These are **sequence numbers**, and they are critical for Blazor's efficient diffing algorithm.
-*   **Uniqueness:** Each distinct instruction (e.g., `OpenElement`, `AddContent`, `AddAttribute`, `OpenComponent`) within a `BuildRenderTree` method must have a unique and monotonically increasing sequence number.
-*   **Consistency:** For a given Cadenza source line or UI element, its corresponding C# `RenderTreeBuilder` calls must always use the same sequence numbers across compilations, even if the surrounding code changes. This allows Blazor to efficiently identify and update only the changed parts of the UI.
-*   **Dynamic Content:** For dynamically generated content (e.g., items in a loop), sequence numbers should be generated dynamically within the loop, typically by incrementing a counter. Blazor also requires a `key` for list items to optimize rendering; this is covered in Section 5.2.
+**Implementation Strategy:** This specification defines a **Minimum Viable Product (MVP)** for Blazor support that works with current parser capabilities, with planned enhancements for future releases.
 
-Your compiler must ensure these sequence number rules are strictly followed.
+**Key Concept: Sequence Numbers:** Blazor's `BuildRenderTree` method requires unique, monotonically increasing sequence numbers for efficient UI diffing:
+*   **Uniqueness:** Each `OpenElement`, `AddContent`, `AddAttribute`, `OpenComponent` call needs a unique sequence number
+*   **Consistency:** Sequence numbers must be deterministic across compilations
+*   **Dynamic Content:** Loop-generated content requires dynamic sequence number management with explicit keys
 
-## 2. `component` to Blazor Component Class
+## 2. `component` to Blazor Component Class (MVP Implementation)
 
-A Cadenza `component` is the fundamental building block of the UI. It encapsulates state, behavior, and rendering logic.
+**Current Parser Support:** The Cadenza parser correctly handles component declarations with the following supported syntax patterns.
 
-**Mapping:** Each Cadenza component file (`.cdz`) will compile into a public C# class. This class must inherit from `Microsoft.AspNetCore.Components.ComponentBase`.
+**Mapping:** Each Cadenza component with `-> UIComponent` compiles to a C# class inheriting from `ComponentBase`.
 
-**Generated C# Class Structure:**
-
-*   **Inheritance:** `public class [ComponentName] : ComponentBase`
-*   **`BuildRenderTree` Method:** The core rendering logic for the component will reside within an overridden `protected override void BuildRenderTree(RenderTreeBuilder builder)` method. This method is where all UI elements are constructed using the `RenderTreeBuilder` API.
-
-**Cadenza Example (Greeting.cdz):**
+**Supported Component Declaration Syntax:**
 
 ```cadenza
-component Greeting {
-    view {
-        h1 { "Hello, World!" }
+component ComponentName(param1: Type, param2: Type) 
+    uses [Effect1, Effect2] 
+    state [stateVar1, stateVar2]
+    events [event1, event2]
+    -> UIComponent 
+{
+    declare_state stateVar: type = initialValue
+    
+    event_handler handle_something() uses [DOM] {
+        // handler logic
+    }
+    
+    render {
+        // UI elements
     }
 }
 ```
 
-**Generated C# Target (Greeting.g.cs):**
+**Current Limitations:**
+- Component parameters work with basic types (string, int, bool)
+- Effects are parsed but not fully integrated with Blazor services
+- State management is basic (no complex state patterns)
+
+**Working Example (SimpleGreeting.cdz):**
+
+```cadenza
+component SimpleGreeting(name: string) 
+    uses [DOM] 
+    state [message]
+    events [on_update]
+    -> UIComponent 
+{
+    declare_state message: string = "Hello"
+    
+    event_handler handle_update() uses [DOM] {
+        set_state(message, "Updated!")
+    }
+    
+    render {
+        div(class: "greeting") {
+            h1(text: message)
+            button(text: "Update", on_click: handle_update)
+        }
+    }
+}
+```
+
+**Generated C# Target (SimpleGreeting.g.cs):**
 
 ```csharp
 // <auto-generated>
@@ -45,15 +84,33 @@ component Greeting {
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Rendering;
 
-public class Greeting : ComponentBase
+public class SimpleGreeting : ComponentBase
 {
+    [Parameter] public string Name { get; set; } = "";
+    
+    private string _message = "Hello";
+    
+    private void HandleUpdate()
+    {
+        _message = "Updated!";
+        StateHasChanged();
+    }
+    
     protected override void BuildRenderTree(RenderTreeBuilder builder)
     {
-        // Sequence numbers are crucial for Blazor's diffing algorithm.
-        // They must be unique and consistent for each instruction.
-        builder.OpenElement(0, "h1"); // Sequence 0: Open <h1> tag
-        builder.AddContent(1, "Hello, World!"); // Sequence 1: Add text content
-        builder.CloseElement(); // Sequence 2: Close <h1> tag
+        builder.OpenElement(0, "div");
+        builder.AddAttribute(1, "class", "greeting");
+        
+        builder.OpenElement(2, "h1");
+        builder.AddContent(3, _message);
+        builder.CloseElement();
+        
+        builder.OpenElement(4, "button");
+        builder.AddAttribute(5, "onclick", EventCallback.Factory.Create(this, HandleUpdate));
+        builder.AddContent(6, "Update");
+        builder.CloseElement();
+        
+        builder.CloseElement(); // div
     }
 }
 ```
@@ -64,117 +121,160 @@ public class Greeting : ComponentBase
 *   The `Greeting` class inherits `ComponentBase`.
 *   `BuildRenderTree` contains the `RenderTreeBuilder` calls. Notice the sequence numbers (0, 1, 2) which are unique for each operation within this method. These numbers help Blazor efficiently update the UI when changes occur.
 
-## 3. State Management (`state` block)
+## 3. State Management (Current Implementation)
 
-The `state` block in a Cadenza component declares the internal, mutable data that the component manages. This data drives the component's UI and behavior.
+**Parser Support:** The Cadenza parser correctly handles `declare_state` declarations and basic `set_state` calls.
 
-**Mapping:**
-
-*   **State Variables to Fields:** Each variable declared within the Cadenza `state` block will be compiled into a private field within the generated C# component class. The C# type will correspond to the Cadenza type (e.g., `Int32` to `int`, `String` to `string`).
-*   **`set_state` Function:** The `set_state` function is the *only* mechanism in Cadenza for modifying a component's state. Your compiler must translate a `set_state` call into two distinct C# operations:
-    1.  **Update the Field:** Assign the new value to the corresponding private C# field.
-    2.  **Notify Blazor:** Call the `StateHasChanged()` method. This method, inherited from `ComponentBase`, notifies Blazor that the component's state has changed and that it needs to re-render. Without this call, Blazor will not detect the change, and the UI will not update.
-
-**Cadenza Example (Counter.cdz):**
+**Supported State Syntax:**
 
 ```cadenza
-component Counter {
-    state {
-        count: Int32 = 0
-    }
-
-    effectful function increment() uses [State] {
-        // Updates the 'count' state variable by incrementing its current value.
-        set_state(current => { count: current.count + 1 })
-    }
+component MyComponent -> UIComponent {
+    declare_state variableName: type = initialValue
     
-    view {
-        // ... view block that displays 'count' ...
+    event_handler some_handler() uses [DOM] {
+        set_state(variableName, newValue)
     }
 }
 ```
 
-**Generated C# Target (Counter.g.cs):**
+**Current Limitations:**
+- State updates use simple assignment syntax: `set_state(variable, value)`
+- No complex state update patterns (reducers, computed state)
+- Limited type support (basic types work: string, int, bool)
+- No state validation or constraints
+
+**Working State Example:**
+
+```cadenza
+component Counter -> UIComponent {
+    declare_state count: int = 0
+    declare_state message: string = "Click to count"
+    
+    event_handler handle_increment() uses [DOM] {
+        set_state(count, count + 1)
+        set_state(message, "Count: " + count.toString())
+    }
+    
+    render {
+        div(class: "counter") {
+            p(text: message)
+            button(text: "Increment", on_click: handle_increment)
+        }
+    }
+}
+```
+
+**Generated C# Output:**
 
 ```csharp
 // <auto-generated>
-// This file was generated by the Cadenza compiler. Do not edit manually.
-
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Rendering;
 
 public class Counter : ComponentBase
 {
-    // Private field to hold the state of 'count'.
-    // Initialized with the default value from Cadenza.
     private int _count = 0;
+    private string _message = "Click to count";
 
-    // The 'increment' function from Cadenza.
-    private void Increment()
+    private void HandleIncrement()
     {
-        // Translation of 'set_state(current => { count: current.count + 1 })':
-        // 1. Update the private field.
-        this._count = this._count + 1;
-        // 2. Notify Blazor to re-render the component.
-        this.StateHasChanged();
+        _count = _count + 1;
+        _message = "Count: " + _count.ToString();
+        StateHasChanged();
     }
     
     protected override void BuildRenderTree(RenderTreeBuilder builder)
     {
-        // ... Rendering logic that uses this._count ...
-        // Example: builder.AddContent(sequence, $"Current count: {this._count}");
+        builder.OpenElement(0, "div");
+        builder.AddAttribute(1, "class", "counter");
+        
+        builder.OpenElement(2, "p");
+        builder.AddContent(3, _message);
+        builder.CloseElement();
+        
+        builder.OpenElement(4, "button");
+        builder.AddAttribute(5, "onclick", EventCallback.Factory.Create(this, HandleIncrement));
+        builder.AddContent(6, "Increment");
+        builder.CloseElement();
+        
+        builder.CloseElement();
     }
 }
 ```
 
-## 4. The `view` Block: Rendering Logic
+**Key Implementation Notes:**
+- Each `declare_state` becomes a private field with underscore prefix
+- `set_state(variable, value)` translates to field assignment + `StateHasChanged()`
+- State variables are accessed directly in render logic
+- Basic type mapping: `int -> int`, `string -> string`, `bool -> bool`
 
-The `view` block is where the UI structure of a Cadenza component is defined. It describes the hierarchy of HTML elements, text, and other components. This block maps directly to a series of calls on the `RenderTreeBuilder` instance within the `BuildRenderTree` method of the generated C# component.
+## 4. The `render` Block: Current Implementation
 
-### 4.1. HTML Elements and Text
+**Parser Support:** The current parser requires UI elements to use function-call syntax with parentheses and explicit attribute declarations.
 
-**Mapping:** A Cadenza HTML element (e.g., `div { "text" }`, `h1 { "Welcome" }`) translates into a sequence of `RenderTreeBuilder` calls:
-
-*   `builder.OpenElement(sequence, "tagName")`: Opens an HTML element. The `tagName` is the string representation of the HTML tag (e.g., "div", "h1", "p").
-*   `builder.AddContent(sequence, content)`: Adds text content or child components. The `content` can be a literal string or an interpolated string (for Cadenza expressions).
-*   `builder.CloseElement()`: Closes the currently open HTML element.
-
-**Sequence Numbers:** As discussed in Section 1, sequence numbers are crucial. Each `OpenElement`, `AddContent`, and `CloseElement` call must have a unique and consistent sequence number within the `BuildRenderTree` method.
-
-**Cadenza Example:**
+**Required Syntax (Current Parser):**
 
 ```cadenza
-view {
-    div {
-        h1 { "Welcome" }
-        p { "Current count is: ${state.count}" }
+render {
+    element_name(attribute1: value1, attribute2: value2) {
+        // child elements or text
     }
 }
 ```
 
-**Generated C# Target:**
+**Current Limitations:**
+- Elements MUST have parentheses: `div()` not `div`
+- Text content requires explicit attributes: `text: "content"`  
+- No shorthand syntax for text-only elements
+- Limited expression support in attributes
+
+### 4.1. HTML Elements (Current Implementation)
+
+**Working Syntax Patterns:**
+
+```cadenza
+render {
+    div(class: "container") {
+        h1(text: "Welcome")
+        p(text: "Current count: " + count.toString())
+        button(text: "Click me", class: "btn", on_click: handle_click)
+    }
+}
+```
+
+**Generated C# Output:**
 
 ```csharp
 protected override void BuildRenderTree(RenderTreeBuilder builder)
 {
-    // Sequence 0: Open <div>
     builder.OpenElement(0, "div");
+    builder.AddAttribute(1, "class", "container");
     
-    // Sequence 1: Open <h1>
-    builder.OpenElement(1, "h1");
-    // Sequence 2: Add content "Welcome" to <h1>
-    builder.AddContent(2, "Welcome");
-    builder.CloseElement(); // h1
+    builder.OpenElement(2, "h1");
+    builder.AddContent(3, "Welcome");
+    builder.CloseElement();
     
-    // Sequence 4: Open <p>
-    builder.OpenElement(3, "p");
-    // Sequence 5: Add interpolated content to <p>. Note the use of 'this._count' for state access.
-    builder.AddContent(4, $"Current count is: {this._count}");
-    builder.CloseElement(); // p
+    builder.OpenElement(4, "p");
+    builder.AddContent(5, $"Current count: {_count.ToString()}");
+    builder.CloseElement();
     
-    // Sequence 7: Close <div>
+    builder.OpenElement(6, "button");
+    builder.AddAttribute(7, "class", "btn");
+    builder.AddAttribute(8, "onclick", EventCallback.Factory.Create(this, HandleClick));
+    builder.AddContent(9, "Click me");
+    builder.CloseElement();
+    
     builder.CloseElement(); // div
 }
 ```
+
+**Element Mapping:**
+- `div()` → `<div>`
+- `h1()`, `h2()`, etc. → `<h1>`, `<h2>`
+- `button()` → `<button>`
+- `p()` → `<p>`
+- `span()` → `<span>`
+- `input()` → `<input>`
 
 **Explanation:**
 *   Each HTML tag (e.g., `div`, `h1`, `p`) results in an `OpenElement` and `CloseElement` pair.
@@ -182,837 +282,101 @@ protected override void BuildRenderTree(RenderTreeBuilder builder)
 *   Cadenza expressions within strings (e.g., `${state.count}`) are translated into C# interpolated strings (e.g., `$"Current count is: {this._count}"`). Remember that `state.count` maps to the private field `_count`.
 *   The sequence numbers are carefully assigned to maintain uniqueness and consistency.
 
-### 4.2. Attributes and Event Handlers
+### 4.2. Attributes and Event Handlers (Current Implementation)
 
-**Mapping:** Attributes and event handlers defined on Cadenza UI elements are translated into `RenderTreeBuilder.AddAttribute()` calls.
+**Supported Attributes:**
 
-*   **Standard Attributes:** Attributes like `class`, `id`, `value`, `placeholder`, `disabled`, etc., map directly to `builder.AddAttribute(sequence, "attributeName", "attributeValue")`.
-*   **Event Handlers:** Cadenza event handlers (e.g., `onclick`, `onchange`, `onsubmit`) map to Blazor's `EventCallback` mechanism. These are added using `builder.AddAttribute(sequence, "eventName", EventCallback.Factory.Create(this, this.CadenzaEventHandlerMethod))`.
-    *   `EventCallback.Factory.Create(this, ...)` is used to create an `EventCallback` that wraps the C# method corresponding to the Cadenza event handler.
-    *   `this` refers to the current component instance.
-    *   `this.CadenzaEventHandlerMethod` is the C# method generated from the Cadenza `effectful function` that handles the event.
+| Cadenza Attribute | Maps To | Example |
+|-------------------|---------|---------|
+| `class` | `class` | `class: "btn-primary"` |
+| `id` | `id` | `id: "my-button"` |
+| `text` | Content | `text: "Click me"` |
+| `disabled` | `disabled` | `disabled: true` |
+| `value` | `value` | `value: input_value` |
+| `placeholder` | `placeholder` | `placeholder: "Enter text"` |
 
-**Cadenza Example:**
+**Event Handler Mapping:**
+
+| Cadenza Event | Blazor Event | Example |
+|---------------|--------------|---------|
+| `on_click` | `onclick` | `on_click: handle_click` |
+| `on_change` | `onchange` | `on_change: handle_change` |
+| `on_input` | `oninput` | `on_input: handle_input` |
+| `on_submit` | `onsubmit` | `on_submit: handle_submit` |
+
+**Working Example:**
 
 ```cadenza
-view {
-    button(class: "btn-primary", onclick: increment) { 
-        "Click me" 
-    }
+render {
+    button(
+        class: "btn-primary",
+        disabled: loading,
+        text: "Save",
+        on_click: handle_save
+    )
 }
 ```
 
-**Generated C# Target:**
+**Generated C# Output:**
 
 ```csharp
-protected override void BuildRenderTree(RenderTreeBuilder builder)
-{
-    // Sequence 0: Open <button>
-    builder.OpenElement(0, "button");
-    // Sequence 1: Add 'class' attribute
-    builder.AddAttribute(1, "class", "btn-primary");
-    // Sequence 2: Add 'onclick' event handler. 'Increment' is the C# method.
-    builder.AddAttribute(2, "onclick", EventCallback.Factory.Create(this, this.Increment));
-    // Sequence 3: Add text content
-    builder.AddContent(3, "Click me");
-    // Sequence 4: Close <button>
-    builder.CloseElement(); // button
-}
+builder.OpenElement(0, "button");
+builder.AddAttribute(1, "class", "btn-primary");
+builder.AddAttribute(2, "disabled", _loading);
+builder.AddAttribute(3, "onclick", EventCallback.Factory.Create(this, HandleSave));
+builder.AddContent(4, "Save");
+builder.CloseElement();
 ```
+
+**Current Limitations:**
+- Limited to basic attribute types (string, bool, basic expressions)
+- No complex expression evaluation in attributes
+- Event handlers must be simple method references
+- No lambda expressions or inline handlers
 
 **Explanation:**
 *   The `class` attribute is straightforwardly mapped.
 *   The `onclick: increment` in Cadenza is translated to an `AddAttribute` call for `onclick`, where the value is an `EventCallback` created from the `Increment` C# method (which was generated from the Cadenza `increment` function).
 
-## 5. Control Flow in Views
+## 5. Control Flow in UI (Current Implementation)
 
-Cadenza allows conditional rendering and list rendering directly within the `view` block. These control flow constructs are translated into standard C# control flow statements within the `BuildRenderTree` method.
+**Parser Support:** The current parser handles basic conditional rendering and iterative rendering within render blocks.
 
-### 5.1. `if/else` Expressions
+### 5.1. Conditional Rendering
 
-**Mapping:** A Cadenza `if/else` expression inside a `view` block becomes a standard C# `if/else` block within the `BuildRenderTree` method. The condition of the Cadenza `if` statement is translated directly into a C# boolean expression.
-
-**Sequence Numbers:** It is crucial that sequence numbers within `if` and `else` branches are distinct and consistent. Blazor uses these numbers to efficiently determine which elements to add or remove when the condition changes.
-
-**Cadenza Example:**
+**Supported Syntax:**
 
 ```cadenza
-view {
-    if state.count > 10 {
-        p { "The number is large!" }
+render {
+    if condition {
+        // then elements
     } else {
-        p { "The number is small." }
+        // else elements  
     }
 }
 ```
 
-**Generated C# Target:**
+**Current Limitations:**
+- Basic boolean conditions only
+- No complex logical operators in conditions
+- Limited to simple comparisons and state variables
 
-```csharp
-protected override void BuildRenderTree(RenderTreeBuilder builder)
-{
-    if (this._count > 10) // Condition translated to C#
-    {
-        // Sequence numbers for the 'if' branch
-        builder.OpenElement(0, "p");
-        builder.AddContent(1, "The number is large!");
-        builder.CloseElement();
-    }
-    else
-    {
-        // Sequence numbers for the 'else' branch. 
-        // Note: These can reuse sequence numbers from the 'if' branch if they are mutually exclusive,
-        // but it's safer to use distinct ranges or ensure consistency if elements can appear in both.
-        // For simplicity in this example, we'll use new sequence numbers.
-        builder.OpenElement(2, "p");
-        builder.AddContent(3, "The number is small.");
-        builder.CloseElement();
-    }
-}
-```
-
-**Explanation:**
-*   The Cadenza `if` condition `state.count > 10` is translated to `this._count > 10` in C#.
-*   Each branch of the `if/else` contains its own set of `RenderTreeBuilder` calls with their respective sequence numbers. The compiler must ensure these sequence numbers are managed correctly to avoid conflicts and enable efficient UI updates.
-
-### 5.2. Rendering Lists
-
-**Mapping:** Looping over a collection in Cadenza state (e.g., using an `each` keyword) maps to a C# `foreach` loop inside the `BuildRenderTree` method. Each item in the collection will generate its own set of UI elements.
-
-**Keyed Elements (`builder.SetKey()`):** When rendering lists, Blazor requires a unique `key` for each item to efficiently track changes, additions, and removals. This is critical for performance and correct UI behavior. Your compiler *must* automatically generate and apply a key for each item in a list. If the item itself is a simple type (like `string` or `int`), it can serve as its own key. For complex objects, a unique identifier property (e.g., `item.Id`) should be used.
-
-**Sequence Numbers in Loops:** Sequence numbers within a loop must be generated dynamically. A common pattern is to use a local counter that increments with each element generated within the loop.
-
-**Cadenza Example:**
+**Working Example:**
 
 ```cadenza
-state {
-    items: List<String> = ["Apple", "Banana", "Cherry"]
-}
-
-view {
-    ul {
-        each item in state.items {
-            li { item }
-        }
-    }
-}
-```
-
-**Generated C# Target:**
-
-```csharp
-protected override void BuildRenderTree(RenderTreeBuilder builder)
-{
-    // Sequence 0: Open <ul>
-    builder.OpenElement(0, "ul");
+component StatusDisplay -> UIComponent {
+    declare_state loading: bool = false
+    declare_state error: bool = false
     
-    // Start sequence for dynamic items within the loop.
-    // This counter ensures unique sequence numbers for each generated <li>.
-    var sequence = 1; 
-    foreach (var item in this._items) // Loop over the C# field corresponding to state.items
-    {
-        // Sequence for the <li> element. Incremented for each item.
-        builder.OpenElement(sequence++, "li");
-        
-        // CRITICAL: Set a unique key for each list item for Blazor's diffing.
-        // For simple types like string, the item itself can be the key.
-        builder.SetKey(item); 
-        builder.AddContent(sequence++, item); 
-        builder.CloseElement();
-    }
-    
-    builder.CloseElement(); // ul
-}
-```
-
-**Explanation:**
-*   The Cadenza `each` loop is translated into a C# `foreach` loop.
-*   A `sequence` variable is introduced and incremented within the loop to ensure unique sequence numbers for each dynamically generated element.
-*   `builder.SetKey(item)` is explicitly called for each `<li>` element. This is vital for Blazor's performance when lists change.
-
-## 6. Component Composition
-
-Cadenza allows you to compose UIs by using one component inside another. This is a fundamental aspect of building complex applications. When a Cadenza component is used within the `view` block of another, it translates into Blazor's component rendering mechanism.
-
-**Mapping:** Using a Cadenza component (e.g., `Greeting {}`) inside another component's `view` block maps to the following `RenderTreeBuilder` calls:
-
-*   `builder.OpenComponent<T>(sequence)`: Opens a component of type `T`. `T` will be the C# class generated from the Cadenza component.
-*   `builder.CloseComponent()`: Closes the component.
-
-**Cadenza Example:**
-
-```cadenza
-// Assume we have a `Greeting.cdz` component from Section 2.
-
-component App {
-    view {
-        div {
-            // Use the Greeting component here
-            Greeting {}
-        }
-    }
-}
-```
-
-**Generated C# Target (App.g.cs):**
-
-```csharp
-// <auto-generated>
-// This file was generated by the Cadenza compiler. Do not edit manually.
-
-using Microsoft.AspNetCore.Components;
-using Microsoft.AspNetCore.Components.Rendering;
-
-public class App : ComponentBase
-{
-    protected override void BuildRenderTree(RenderTreeBuilder builder)
-    {
-        // Sequence 0: Open <div>
-        builder.OpenElement(0, "div");
-        
-        // Sequence 1: Open the Greeting component.
-        // The type parameter <Greeting> refers to the C# class generated for Greeting.cdz.
-        builder.OpenComponent<Greeting>(1);
-        // Sequence 2: Close the Greeting component.
-        builder.CloseComponent();
-        
-        // Sequence 3: Close <div>
-        builder.CloseElement(); // div
-    }
-}
-```
-
-**Explanation:**
-*   The `Greeting {}` usage in Cadenza directly translates to `builder.OpenComponent<Greeting>(...)` and `builder.CloseComponent()`.
-*   The type argument `Greeting` in `OpenComponent<Greeting>` refers to the C# class that was generated from `Greeting.cdz`.
-*   Sequence numbers are assigned as usual.
-
-## 7. Passing Parameters to Components
-
-Components often need to receive data from their parents. In Cadenza, this is done by defining parameters in the child component's signature and passing values when using the component. In Blazor, these map to public properties on the child component's C# class, marked with the `[Parameter]` attribute.
-
-**Mapping:**
-
-*   **Child Component Parameters:** A parameter defined in a Cadenza child component (e.g., `message: String`) translates to a public C# property on the generated child component class. This property *must* be decorated with the `[Parameter]` attribute from `Microsoft.AspNetCore.Components`.
-*   **Parent Passing Parameters:** When a parent component passes a value to a child component (e.g., `Child(message: "Hello")`), this translates to an `builder.AddAttribute()` call. The attribute name must exactly match the public property name (case-sensitive) in the child component's C# class.
-
-**Cadenza Example (Child component - Child.cdz):**
-
-```cadenza
-component Child(message: String) {
-    view {
-        p { "Message: ${message}" }
-    }
-}
-```
-
-**Generated C# Target (Child.g.cs):**
-
-```csharp
-// <auto-generated>
-// This file was generated by the Cadenza compiler. Do not edit manually.
-
-using Microsoft.AspNetCore.Components;
-using Microsoft.AspNetCore.Components.Rendering;
-
-public class Child : ComponentBase
-{
-    // The 'message' parameter from Cadenza becomes a public C# property.
-    // The [Parameter] attribute is essential for Blazor to recognize it as a component parameter.
-    [Parameter]
-    public string Message { get; set; }
-
-    protected override void BuildRenderTree(RenderTreeBuilder builder)
-    {
-        builder.OpenElement(0, "p");
-        // Access the parameter directly via the public property.
-        builder.AddContent(1, $"Message: {Message}");
-        builder.CloseElement();
-    }
-}
-```
-
-**Cadenza Example (Parent component - Parent.cdz):**
-
-```cadenza
-component Parent {
-    view {
-        Child(message: "Hello from parent")
-    }
-}
-```
-
-**Generated C# Target (Parent.g.cs):**
-
-```csharp
-// <auto-generated>
-// This file was generated by the Cadenza compiler. Do not edit manually.
-
-using Microsoft.AspNetCore.Components;
-using Microsoft.AspNetCore.Components.Rendering;
-
-public class Parent : ComponentBase
-{
-    protected override void BuildRenderTree(RenderTreeBuilder builder)
-    {
-        builder.OpenComponent<Child>(0);
-        // The attribute name "Message" must exactly match the public property name in Child.g.cs.
-        builder.AddAttribute(1, "Message", "Hello from parent"); 
-        builder.CloseComponent();
-    }
-}
-```
-
-**Explanation:**
-*   The `[Parameter]` attribute on the `Message` property in `Child.g.cs` tells Blazor that this property can receive values from a parent component.
-*   In `Parent.g.cs`, `builder.AddAttribute(1, "Message", "Hello from parent")` sets the value for the `Message` parameter on the `Child` component instance.
-*   The parameter name in `AddAttribute` (`"Message"`) must match the C# property name (`Message`) exactly, including casing.
-
-## 8. Styling and CSS Integration (Placeholder)
-To solve the problem of CSS being unintuitive for an LLM, Cadenza provides a structured, multi-layered approach to styling that is verifiable and directly connected to the component logic.
-
-### 8.1. Inline Styles (for Dynamic Values)
-This approach is best for styles that change based on component state.
-
-**Mapping:** A style attribute in a view element takes a list of style objects. The compiler generates a helper method that computes a final, semicolon-separated CSS string from these objects.
-
-**Cadenza Example:**
-
-```cadenza
-component DynamicStyledButton {
-    state { is_active: Bool = false }
-
-    style base { padding: "10px"; border-radius: "5px"; }
-    style active { background-color: "green"; }
-    style inactive { background-color: "gray"; }
-
-    view {
-        button(style: [base, if state.is_active { active } else { inactive }]) {
-            "Toggle"
-        }
-    }
-}
-```
-
-**Generated C# Target:**
-
-```csharp
-public class DynamicStyledButton : ComponentBase
-{
-    private bool _isActive = false;
-
-    // Helper method to compute the style string based on state.
-    private string GetButtonStyle()
-    {
-        var css = "padding:10px;border-radius:5px;";
-        if (_isActive) {
-            css += "background-color:green;";
-        } else {
-            css += "background-color:gray;";
-        }
-        return css;
-    }
-
-    protected override void BuildRenderTree(RenderTreeBuilder builder)
-    {
-        builder.OpenElement(0, "button");
-        builder.AddAttribute(1, "style", GetButtonStyle());
-        builder.AddContent(2, "Toggle");
-        builder.CloseElement();
-    }
-    // ... method to toggle _isActive and call StateHasChanged() ...
-}
-```
-
-### 8.2. Scoped Styles (for Component-Specific CSS)
-This is the preferred method for static styles that should only apply to a single component, including pseudo-classes (:hover) and media queries.
-
-**Mapping:**
-
-*   **Scope ID Generation:** For each component file, the compiler generates a unique scope identifier (e.g., `cadenza-b-xyz123abc`).
-*   **CSS File Generation:** The compiler parses all style blocks containing complex selectors (like `:hover`) and generates a separate CSS file (e.g., `MyComponent.g.css`). Each selector in this file is appended with the unique scope ID.
-*   **Attribute Injection:** The compiler adds the scope ID as an attribute to every HTML element rendered by the component's view block. This is how Blazor ensures the styles are "scoped."
-
-**Cadenza Example (ScopedButton.cdz):**
-
-```cadenza
-component ScopedButton {
-    // These styles will be scoped to this component.
-    style buttonStyles {
-        "button": {
-            background-color: "#007bff";
-            color: "white";
-            transition: "background-color 0.3s";
-        },
-        "button:hover": {
-            background-color: "#0056b3";
-        }
-    }
-    
-    view {
-        button { "Scoped Button" }
-    }
-}
-```
-
-**Generated Files:**
-
-1.  **ScopedButton.g.css:**
-
-    ```css
-    /* <auto-generated> */
-    button[cadenza-b-xyz123abc] {
-        background-color: #007bff;
-        color: white;
-        transition: background-color 0.3s;
-    }
-
-    button[cadenza-b-xyz123abc]:hover {
-        background-color: #0056b3;
-    }
-    ```
-
-2.  **ScopedButton.g.cs:**
-
-    ```csharp
-    public class ScopedButton : ComponentBase
-    {
-        // The scope ID is a constant for this component.
-        private const string ScopeId = "cadenza-b-xyz123abc";
-
-        protected override void BuildRenderTree(RenderTreeBuilder builder)
-        {
-            builder.OpenElement(0, "button");
-            // The scope ID is added as an attribute to the element.
-            builder.AddAttribute(1, ScopeId); 
-            builder.AddContent(2, "Scoped Button");
-            builder.CloseElement();
-        }
-    }
-    ```
-
-### 8.3. Theming (for Global Consistency)
-Theming allows for defining a global set of design tokens (colors, fonts, spacing) that can be reused across all components.
-
-**Mapping:**
-
-*   **Theme Definition:** A special `theme.cdz` file defines theme variables. This file compiles into a static C# class with public constants.
-*   **Token Usage:** Cadenza style blocks can reference theme variables using a special syntax (e.g., `theme.colors.primary`).
-*   **Compile-Time Resolution:** The compiler replaces theme references with their literal values during compilation. This means there is zero runtime overhead for theming.
-
-**Cadenza Examples:**
-
-1.  **theme.cdz:**
-
-    ```cadenza
-    theme AppTheme {
-        colors: {
-            primary: "#007bff",
-            secondary: "#6c757d",
-            light: "#ffffff",
-            dark: "#212529"
-        },
-        spacing: {
-            small: "8px",
-            medium: "16px"
-        }
-    }
-    ```
-
-2.  **ThemedButton.cdz:**
-
-    ```cadenza
-    component ThemedButton {
-        style buttonStyle {
-            background-color: theme.colors.primary;
-            color: theme.colors.light;
-            padding: theme.spacing.medium;
-        }
-
-        view {
-            button(style: [buttonStyle]) { "Themed Button" }
-        }
-    }
-    ```
-
-**Generated C# Target (ThemedButton.g.cs):**
-
-```csharp
-public class ThemedButton : ComponentBase
-{
-    // The compiler resolves theme variables at compile time and
-    // generates the final, static style string.
-    private const string _buttonStyleString = "background-color:#007bff;color:#ffffff;padding:16px;";
-
-    protected override void BuildRenderTree(RenderTreeBuilder builder)
-    {
-        builder.OpenElement(0, "button");
-        builder.AddAttribute(1, "style", _buttonStyleString);
-        builder.AddContent(2, "Themed Button");
-        builder.CloseElement();
-    }
-}
-```
-
-**Note to Developer:** The compiler must be configured to know where the active `theme.cdz` file is located for the project.
-
-## 9. Event Handling (Advanced)
-
-### 9.1. Custom Events
-
-**Mapping:** When a child component needs to communicate back to its parent, it can expose custom events. In Cadenza, this would be declared as part of the component's interface. In C#, these map to `EventCallback<T>` properties.
-
-**Cadenza Example (Child component):**
-
-```cadenza
-component Child(on_click: Event<Unit>) {
-    view {
-        button(onclick: on_click) { "Click me" }
-    }
-}
-```
-
-**Generated C# Target (Child.g.cs):**
-
-```csharp
-// <auto-generated>
-// This file was generated by the Cadenza compiler. Do not edit manually.
-
-using Microsoft.AspNetCore.Components;
-using Microsoft.AspNetCore.Components.Rendering;
-
-public class Child : ComponentBase
-{
-    [Parameter] public EventCallback OnClick { get; set; }
-
-    protected override void BuildRenderTree(RenderTreeBuilder builder)
-    {
-        builder.OpenElement(0, "button");
-        builder.AddAttribute(1, "onclick", OnClick); // Directly assign EventCallback
-        builder.AddContent(2, "Click me");
-        builder.CloseElement();
-    }
-}
-```
-
-**Cadenza Example (Parent component):**
-
-```cadenza
-component Parent {
-    effectful function handle_child_click() uses [Console] {
-        log("Child button clicked!")
-    }
-
-    view {
-        Child(on_click: handle_child_click)
-    }
-}
-```
-
-**Generated C# Target (Parent.g.cs):**
-
-```csharp
-// <auto-generated>
-// This file was generated by the Cadenza compiler. Do not edit manually.
-
-using Microsoft.AspNetCore.Components;
-using Microsoft.AspNetCore.Components.Rendering;
-
-public class Parent : ComponentBase
-{
-    private void HandleChildClick()
-    {
-        System.Console.WriteLine("Child button clicked!"); // Changed from Console.WriteLine to System.Console.WriteLine
-    }
-
-    protected override void BuildRenderTree(RenderTreeBuilder builder)
-    {
-        builder.OpenComponent<Child>(0);
-        builder.AddAttribute(1, "OnClick", EventCallback.Factory.Create(this, HandleChildClick));
-        builder.CloseComponent();
-    }
-}
-```
-
-**Explanation:**
-*   The `on_click` event in the Cadenza child component becomes an `[Parameter] EventCallback OnClick` property in the C# child component.
-*   In the parent, `EventCallback.Factory.Create` is used to bind the parent's `HandleChildClick` method to the child's `OnClick` parameter.
-*   Note the change from `Console.WriteLine` to `System.Console.WriteLine` for full qualification, which is good practice in C#.
-
-## 10. Lifecycle Methods (Placeholder)
-
-Cadenza components will eventually support lifecycle methods (e.g., `on_mount`, `on_unmount`). These will map to Blazor's `OnInitializedAsync`, `OnParametersSetAsync`, `OnAfterRenderAsync`, etc.
-
-**Future Considerations:**
-
-*   `on_mount`: Maps to `OnInitializedAsync` or `OnAfterRenderAsync`.
-*   `on_unmount`: Maps to `IDisposable.Dispose`.
-*   `on_update`: Maps to `OnParametersSetAsync` or `OnAfterRenderAsync`.
-
-## 11. Interop with JavaScript (Placeholder)
-
-While the primary goal is C# generation, there will be cases where direct JavaScript interop is necessary (e.g., integrating with existing JS libraries).
-
-**Future Considerations:**
-
-*   Allowing direct JS calls from Cadenza.
-*   Exposing Cadenza functions to JavaScript.
-
-## 12. Conclusion
-
-This specification provides a clear path for compiling Cadenza UI components to efficient, type-safe C# Blazor code. By adhering to these mappings, we ensure a predictable and performant frontend development experience within the Cadenza ecosystem.
-
-## 13. Examples of Generated Blazor Components
-
-This section provides concrete examples of Cadenza UI components and their corresponding generated C# Blazor code, illustrating the mappings described in the previous sections.
-
-### 13.1. Counter Component
-
-This example demonstrates state management and event handling.
-
-**Cadenza Source (examples/BlazorCounter.cdz):**
-
-```cadenza
-component BlazorCounter -> UIComponent {
-    state {
-        currentCount: Int32 = 0
-    }
-
-    effectful function incrementCount() uses [State] {
-        set_state(current => { currentCount: current.currentCount + 1 })
-    }
-
-    view {
-        div {
-            h1 { "Counter" }
-
-            p { "Current count: ${state.currentCount}" }
-
-            button(class: "btn btn-primary", onclick: incrementCount) {
-                "Click me"
-            }
-        }
-    }
-}
-```
-
-**Generated C# Target (examples/BlazorCounter.g.cs):**
-
-```csharp
-// <auto-generated>
-// This file was generated by the Cadenza compiler. Do not edit manually.
-
-using Microsoft.AspNetCore.Components;
-using Microsoft.AspNetCore.Components.Rendering;
-
-public class BlazorCounter : ComponentBase
-{
-    private int _currentCount = 0;
-
-    private void IncrementCount()
-    {
-        _currentCount = _currentCount + 1;
-        StateHasChanged();
-    }
-
-    protected override void BuildRenderTree(RenderTreeBuilder builder)
-    {
-        builder.OpenElement(0, "div");
-        
-        builder.OpenElement(1, "h1");
-        builder.AddContent(2, "Counter");
-        builder.CloseElement();
-
-        builder.OpenElement(3, "p");
-        builder.AddContent(4, $"Current count: {_currentCount}");
-        builder.CloseElement();
-
-        builder.OpenElement(5, "button");
-        builder.AddAttribute(6, "class", "btn btn-primary");
-        builder.AddAttribute(7, "onclick", EventCallback.Factory.Create(this, IncrementCount));
-        builder.AddContent(8, "Click me");
-        builder.CloseElement();
-        
-        builder.CloseElement(); // div
-    }
-}
-```
-
-### 13.2. Component Composition Example
-
-This example shows how one Cadenza component can use another.
-
-**Cadenza Source (examples/GreetingChild.cdz):**
-
-```cadenza
-component GreetingChild(message: String) -> UIComponent {
-    view {
-        p { "Message from parent: ${message}" }
-    }
-}
-```
-
-**Generated C# Target (examples/GreetingChild.g.cs):**
-
-```csharp
-// <auto-generated>
-// This file was generated by the Cadenza compiler. Do not edit manually.
-
-using Microsoft.AspNetCore.Components;
-using Microsoft.AspNetCore.Components.Rendering;
-
-public class GreetingChild : ComponentBase
-{
-    [Parameter]
-    public string Message { get; set; }
-
-    protected override void BuildRenderTree(RenderTreeBuilder builder)
-    {
-        builder.OpenElement(0, "p");
-        builder.AddContent(1, $"Message from parent: {Message}");
-        builder.CloseElement();
-    }
-}
-```
-
-**Cadenza Source (examples/ParentComponent.cdz):**
-
-```cadenza
-component ParentComponent -> UIComponent {
-    view {
-        div {
-            h2 { "Parent Component" }
-            GreetingChild(message: "Hello from Parent!")
-        }
-    }
-}
-```
-
-**Generated C# Target (examples/ParentComponent.g.cs):**
-
-```csharp
-// <auto-generated>
-// This file was generated by the Cadenza compiler. Do not edit manually.
-
-using Microsoft.AspNetCore.Components;
-using Microsoft.AspNetCore.Components.Rendering;
-
-public class ParentComponent : ComponentBase
-{
-    protected override void BuildRenderTree(RenderTreeBuilder builder)
-    {
-        builder.OpenElement(0, "div");
-        
-        builder.OpenElement(1, "h2");
-        builder.AddContent(2, "Parent Component");
-        builder.CloseElement();
-
-        builder.OpenComponent<GreetingChild>(3);
-        builder.AddAttribute(4, "Message", "Hello from Parent!");
-        builder.CloseComponent();
-        
-        builder.CloseElement(); // div
-    }
-}
-```
-
-### 13.3. Conditional Rendering Example
-
-This example demonstrates how `if/else` expressions in Cadenza translate to conditional rendering in Blazor.
-
-**Cadenza Source (examples/ConditionalRender.cdz):**
-
-```cadenza
-component ConditionalRender -> UIComponent {
-    state {
-        isVisible: Bool = true
-    }
-
-    effectful function toggleVisibility() uses [State] {
-        set_state(current => { isVisible: !current.isVisible })
-    }
-
-    view {
-        div {
-            button(onclick: toggleVisibility) {
-                "Toggle Visibility"
-            }
-
-            if state.isVisible {
-                p { "This text is visible." }
+    render {
+        div(class: "status") {
+            if loading {
+                p(text: "Loading...")
             } else {
-                p { "This text is hidden." }
-            }
-        }
-    }
-}
-```
-
-**Generated C# Target (examples/ConditionalRender.g.cs):**
-
-```csharp
-// <auto-generated>
-// This file was generated by the Cadenza compiler. Do not edit manually.
-
-using Microsoft.AspNetCore.Components;
-using Microsoft.AspNetCore.Components.Rendering;
-
-public class ConditionalRender : ComponentBase
-{
-    private bool _isVisible = true;
-
-    private void ToggleVisibility()
-    {
-        _isVisible = !_isVisible;
-        StateHasChanged();
-    }
-
-    protected override void BuildRenderTree(RenderTreeBuilder builder)
-    {
-        builder.OpenElement(0, "div");
-        
-        builder.OpenElement(1, "button");
-        builder.AddAttribute(2, "onclick", EventCallback.Factory.Create(this, ToggleVisibility));
-        builder.AddContent(3, "Toggle Visibility");
-        builder.CloseElement();
-
-        if (_isVisible)
-        {
-            builder.OpenElement(4, "p");
-            builder.AddContent(5, "This text is visible.");
-            builder.CloseElement();
-        }
-        else
-        {
-            builder.OpenElement(6, "p");
-            builder.AddContent(7, "This text is hidden.");
-            builder.CloseElement();
-        }
-        
-        builder.CloseElement(); // div
-    }
-}
-```
-
-### 13.4. List Rendering Example
-
-This example demonstrates how to render lists of items in Cadenza, which translates to `foreach` loops in Blazor.
-
-**Cadenza Source (examples/ListRender.cdz):**
-
-```cadenza
-component ListRender -> UIComponent {
-    state {
-        items: List<String> = ["Apple", "Banana", "Cherry"]
-    }
-
-    view {
-        div {
-            h2 { "Fruit List" }
-            ul {
-                each item in state.items {
-                    li { item }
+                if error {
+                    p(text: "Error occurred", class: "error")
+                } else {
+                    p(text: "Ready", class: "success")
                 }
             }
         }
@@ -1020,118 +384,363 @@ component ListRender -> UIComponent {
 }
 ```
 
-**Generated C# Target (examples/ListRender.g.cs):**
+**Generated C# Output:**
 
 ```csharp
-// <auto-generated>
-// This file was generated by the Cadenza compiler. Do not edit manually.
-
-using Microsoft.AspNetCore.Components;
-using Microsoft.AspNetCore.Components.Rendering;
-using System.Collections.Generic; // Required for List<string>
-
-public class ListRender : ComponentBase
+protected override void BuildRenderTree(RenderTreeBuilder builder)
 {
-    private List<string> _items = new List<string> { "Apple", "Banana", "Cherry" };
+    builder.OpenElement(0, "div");
+    builder.AddAttribute(1, "class", "status");
+    
+    if (_loading)
+    {
+        builder.OpenElement(2, "p");
+        builder.AddContent(3, "Loading...");
+        builder.CloseElement();
+    }
+    else
+    {
+        if (_error)
+        {
+            builder.OpenElement(4, "p");
+            builder.AddAttribute(5, "class", "error");
+            builder.AddContent(6, "Error occurred");
+            builder.CloseElement();
+        }
+        else
+        {
+            builder.OpenElement(7, "p");
+            builder.AddAttribute(8, "class", "success");
+            builder.AddContent(9, "Ready");
+            builder.CloseElement();
+        }
+    }
+    
+    builder.CloseElement();
+}
+```
 
+**Explanation:**
+*   The Cadenza `if` condition `state.count > 10` is translated to `this._count > 10` in C#.
+*   Each branch of the `if/else` contains its own set of `RenderTreeBuilder` calls with their respective sequence numbers. The compiler must ensure these sequence numbers are managed correctly to avoid conflicts and enable efficient UI updates.
+
+### 5.2. List Rendering
+
+**Supported Syntax:**
+
+```cadenza
+render {
+    for item in collection {
+        // render item
+    }
+}
+```
+
+**Current Limitations:**
+- Basic collections only (simple types)
+- No complex filtering or conditions
+- Limited to basic loop patterns
+
+**Working Example:**
+
+```cadenza
+component ItemList -> UIComponent {
+    declare_state items: List<string> = ["Apple", "Banana", "Cherry"]
+    
+    render {
+        div(class: "item-list") {
+            h2(text: "Items:")
+            ul() {
+                for item in items {
+                    li(text: item, key: item)
+                }
+            }
+        }
+    }
+}
+```
+
+**Generated C# Output:**
+
+```csharp
+protected override void BuildRenderTree(RenderTreeBuilder builder)
+{
+    builder.OpenElement(0, "div");
+    builder.AddAttribute(1, "class", "item-list");
+    
+    builder.OpenElement(2, "h2");
+    builder.AddContent(3, "Items:");
+    builder.CloseElement();
+    
+    builder.OpenElement(4, "ul");
+    
+    var sequence = 5;
+    foreach (var item in _items)
+    {
+        builder.OpenElement(sequence++, "li");
+        builder.SetKey(item);
+        builder.AddContent(sequence++, item);
+        builder.CloseElement();
+    }
+    
+    builder.CloseElement(); // ul
+    builder.CloseElement(); // div
+}
+```
+
+**Key Implementation Notes:**
+- Each list item requires `builder.SetKey()` for efficient Blazor diffing
+- Sequence numbers are generated dynamically within loops
+- Simple collections (List&lt;string&gt;, List&lt;int&gt;) are supported
+- Complex object iteration requires type definition support (not yet implemented)
+
+**Explanation:**
+*   The Cadenza `each` loop is translated into a C# `foreach` loop.
+*   A `sequence` variable is introduced and incremented within the loop to ensure unique sequence numbers for each dynamically generated element.
+*   `builder.SetKey(item)` is explicitly called for each `<li>` element. This is vital for Blazor's performance when lists change.
+
+## 6. Component Composition (Current Implementation)
+
+**Parser Support:** The current parser handles basic component composition with property passing.
+
+**Supported Syntax:**
+
+```cadenza
+render {
+    ComponentName(prop1: value1, prop2: value2)
+}
+```
+
+**Working Example:**
+
+```cadenza
+// Child Component (Button.cdz)
+component Button(text: string, variant: string) -> UIComponent {
+    render {
+        button(
+            class: "btn btn-" + variant,
+            text: text
+        )
+    }
+}
+
+// Parent Component (App.cdz)  
+component App -> UIComponent {
+    render {
+        div(class: "app") {
+            h1(text: "My App")
+            Button(text: "Save", variant: "primary")
+            Button(text: "Cancel", variant: "secondary")
+        }
+    }
+}
+```
+
+**Generated C# Output (App.g.cs):**
+
+```csharp
+public class App : ComponentBase
+{
     protected override void BuildRenderTree(RenderTreeBuilder builder)
     {
         builder.OpenElement(0, "div");
+        builder.AddAttribute(1, "class", "app");
         
-        builder.OpenElement(1, "h2");
-        builder.AddContent(2, "Fruit List");
+        builder.OpenElement(2, "h1");
+        builder.AddContent(3, "My App");
         builder.CloseElement();
-
-        builder.OpenElement(3, "ul");
         
-        var sequence = 4; // Start sequence for dynamic items
-        foreach (var item in _items)
-        {
-            builder.OpenElement(sequence++, "li");
-            builder.SetKey(item); 
-            builder.AddContent(sequence++, item);
-            builder.CloseElement();
-        }
+        builder.OpenComponent<Button>(4);
+        builder.AddAttribute(5, "Text", "Save");
+        builder.AddAttribute(6, "Variant", "primary");
+        builder.CloseComponent();
         
-        builder.CloseElement(); // ul
+        builder.OpenComponent<Button>(7);
+        builder.AddAttribute(8, "Text", "Cancel");
+        builder.AddAttribute(9, "Variant", "secondary");
+        builder.CloseComponent();
         
-        builder.CloseElement(); // div
+        builder.CloseElement();
     }
 }
 ```
 
-## 14. Testing Generated Blazor Components
+**Current Limitations:**
+- Basic property passing only (primitive types)
+- No child content/slot support
+- No event callback composition
+- Component discovery requires explicit imports
 
-Testing generated Blazor components is crucial for ensuring the correctness of the Cadenza compiler's output. We will leverage `bUnit`, a testing utility library for Blazor components, which allows for easy and comprehensive testing of rendered markup, component parameters, and event handling.
+## 7. Implementation Roadmap
 
-**Key Concepts for `bUnit` Testing:**
+### Phase 1: MVP Blazor Support (2-3 weeks)
 
-*   **`TestContext`:** `bUnit` provides a `TestContext` object that acts as a testing host for Blazor components. It allows you to render components, interact with them, and inspect their output.
-*   **Rendering Components:** Components are rendered using `ctx.RenderComponent<T>()`, where `T` is the generated C# Blazor component class.
-*   **Inspecting Markup:** The rendered component's HTML output can be inspected using `markup` properties and `Find`, `FindAll` methods to assert on elements, attributes, and text content.
-*   **Triggering Events:** `bUnit` allows you to simulate user interactions by triggering events on rendered elements (e.g., `Find("button").Click()`).
-*   **Parameterization:** You can pass parameters to components during rendering using a parameter collection.
+**Goal:** Get basic UI components compiling to working Blazor C# code.
 
-**Example: Testing a Generated Counter Component**
+**Requirements:**
+1. **Replace BlazorGenerator.cs** with production RenderTreeBuilder implementation
+2. **Integrate with main compilation pipeline** 
+   - Add UI component detection in `CadenzaTranspiler`
+   - Route `-> UIComponent` components to Blazor generator
+3. **Add CLI support** for `--target blazor` flag
+4. **Implement sequence number management** for efficient Blazor diffing
 
-Let's consider the `BlazorCounter` component from Section 13.1.
+**Deliverables:**
+- Working Blazor components from simple Cadenza UI syntax
+- Basic state management with `StateHasChanged()`
+- Event handlers working correctly
+- Component parameters and composition
 
-**Unit Test Example (BlazorCounterTests.cs):**
+### Phase 2: Parser Enhancements (2-3 weeks)
 
-```csharp
-using Bunit;
-using Xunit;
-using Microsoft.AspNetCore.Components; // Required for ComponentBase and EventCallback
+**Goal:** Improve parser to support more natural UI syntax.
 
-// Assuming BlazorCounter.g.cs is in the same namespace or properly referenced
-// using YourProject.GeneratedComponents; 
+**Requirements:**
+1. **Enhanced UI element syntax** - Support elements without parentheses
+2. **String interpolation in UI contexts** - Fix template string parsing in attributes
+3. **Expression parsing improvements** - Complex expressions in attributes
+4. **Type definition support** - Basic `type` declarations for UI models
 
-public class BlazorCounterTests : TestContext
-{
-    [Fact]
-    public void CounterStartsAtZero()
-    {
-        // Arrange
-        var cut = RenderComponent<BlazorCounter>(); // Render the BlazorCounter component
+**Deliverables:**
+- More natural syntax: `div { h1 { "text" } }`
+- String interpolation working: `h1 { $"Count: {count}" }`
+- Conditional expressions: `class: loading ? "loading" : "ready"`
 
-        // Assert
-        // Find the paragraph element displaying the count and check its content
-        cut.Find("p").MarkupMatches("<p>Current count: 0</p>");
-    }
+### Phase 3: Development Tooling (2 weeks)
 
-    [Fact]
-    public void IncrementButtonIncrementsCount()
-    {
-        // Arrange
-        var cut = RenderComponent<BlazorCounter>(); // Render the BlazorCounter component
-        var incrementButton = cut.Find("button"); // Find the button
+**Goal:** Provide good developer experience for UI development.
 
-        // Act
-        incrementButton.Click(); // Simulate a click on the increment button
+**Requirements:**
+1. **File watching** for `.cdz` files
+2. **Hot reload integration** with Blazor dev server
+3. **Error reporting** for UI compilation issues
+4. **Project templates** for UI applications
 
-        // Assert
-        cut.Find("p").MarkupMatches("<p>Current count: 1</p>"); // Verify the count has increased
-    }
-}
-```
+**Deliverables:**
+- `cadenzac dev --watch` command
+- Live reload when UI components change
+- Clear error messages for UI syntax issues
+- Project templates: `cadenzac new ui-app`
 
-**Setting up `bUnit` in your Project:**
+### Phase 4: Advanced Features (3-4 weeks)
 
-1.  **Add NuGet Packages:**
-    ```xml
-    <ItemGroup>
-        <PackageReference Include="bunit" Version="1.x.x" />
-        <PackageReference Include="bunit.web" Version="1.x.x" />
-        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.x.x" />
-        <PackageReference Include="xunit" Version="2.x.x" />
-        <PackageReference Include="xunit.runner.visualstudio" Version="2.x.x" />
-        <PackageReference Include="coverlet.collector" Version="3.x.x" />
-    </ItemGroup>
-    ```
-    (Replace `1.x.x`, `17.x.x`, `2.x.x`, `3.x.x` with the latest stable versions.)
+**Goal:** Production-ready UI development capabilities.
 
-2.  **Create a Test Project:** A separate C# test project (e.g., `YourProject.Tests.csproj`) should be created. This project will reference your main project containing the generated Blazor components.
+**Requirements:**
+1. **Lambda expressions** in event handlers
+2. **Complex state patterns** (computed state, reducers)
+3. **Advanced component patterns** (slots, child content)
+4. **CSS integration** (scoped styles, themes)
 
-3.  **Run Tests:** Tests can be run using `dotnet test` from the command line or through your IDE's test runner (e.g., Visual Studio Test Explorer).
+**Deliverables:**
+- Event handlers: `on_click: () => handle_item(item.id)`
+- Component slots and child content
+- Scoped CSS generation
+- Theme system integration
 
-By implementing these tests, you can verify that the Cadenza compiler correctly translates UI components into functional and testable Blazor C# code.
+## 8. Current Limitations and Workarounds
+
+### Parser Limitations
+
+**1. UI Element Syntax**
+- **Current:** `div(class: "container")` 
+- **Desired:** `div { class: "container" }`
+- **Workaround:** Use function-call syntax for now
+
+**2. Text Content**
+- **Current:** `h1(text: "Hello")`
+- **Desired:** `h1 { "Hello" }`
+- **Workaround:** Use `text` attribute
+
+**3. String Interpolation**
+- **Current:** Limited support in UI contexts
+- **Desired:** `h1 { $"Count: {count}" }`
+- **Workaround:** Use string concatenation: `"Count: " + count.toString()`
+
+**4. Complex Expressions**
+- **Current:** Basic expressions only
+- **Desired:** `class: loading ? "loading" : "ready"`
+- **Workaround:** Use conditional rendering with separate elements
+
+### Type System Limitations
+
+**1. Type Definitions**
+- **Missing:** `type User { name: string, email: string }`
+- **Impact:** Complex UI models not supported
+- **Workaround:** Use basic types only
+
+**2. List Types**
+- **Partially working:** `List<string>` in state
+- **Missing:** Complex object lists
+- **Workaround:** Simple collections only
+
+### Integration Limitations
+
+**1. Blazor Generator**
+- **Status:** Proof-of-concept only
+- **Missing:** Production RenderTreeBuilder implementation
+- **Workaround:** Manual C# generation for testing
+
+**2. CLI Integration**
+- **Missing:** `--target blazor` support
+- **Current:** Use `TranspileToBlazorAsync()` method directly
+- **Workaround:** Manual compilation for testing
+
+## 9. Next Steps
+
+### Immediate Actions Required
+
+**1. Start with Phase 1 MVP Implementation**
+- Focus on getting basic UI components working
+- Target simple counter/todo list examples 
+- Use current parser limitations as constraints
+
+**2. Create Working Examples**
+- Build examples using current supported syntax
+- Test end-to-end compilation with existing BlazorGenerator
+- Document what actually works vs. what fails
+
+**3. Define Realistic MVP Scope**
+- Basic component declaration and rendering
+- Simple state management with `StateHasChanged()`
+- Event handlers for click events
+- Component parameters (primitive types only)
+- Basic conditional rendering
+
+### Development Recommendations
+
+**1. Don't Build Aspirational Features**
+- Start with what the parser can handle today
+- Enhance parser incrementally after MVP works
+- Focus on production-ready core features
+
+**2. Test-Driven Implementation**
+- Create working `.cdz` examples first
+- Verify parser generates correct AST
+- Build Blazor generator to match AST structure
+- Test generated C# code compiles and runs
+
+**3. Incremental Enhancement Strategy**
+- Get MVP working with current syntax
+- Identify highest-value parser improvements
+- Enhance one language feature at a time
+- Maintain backward compatibility
+
+## 10. Conclusion
+
+The Cadenza frontend specifications need significant revision to align with current compiler capabilities. The parser supports basic UI component patterns but lacks advanced features assumed in the original specification.
+
+**Key Takeaways:**
+1. **Multi-file project support exists** - prerequisite is met
+2. **Basic UI AST nodes are implemented** - foundation is solid
+3. **Parser syntax limitations require workarounds** - need realistic examples
+4. **BlazorGenerator needs complete rewrite** - current version is demo only
+5. **CLI integration missing** - needs `--target blazor` support
+
+**Success depends on:**
+- Realistic scope definition matching parser capabilities
+- Working examples using supported syntax
+- Production-ready RenderTreeBuilder implementation
+- Comprehensive testing of generated Blazor components
+
+The frontend vision is achievable but requires focused development effort aligned with current compiler capabilities rather than aspirational language features.

@@ -1,0 +1,75 @@
+// Realistic Todo App - Uses component composition with current parser capabilities
+
+component TodoApp -> UIComponent {
+    declare_state todos: List<string> = ["Learn Cadenza", "Build UI", "Test components"]
+    declare_state new_todo: string = ""
+    declare_state filter: string = "all"
+    
+    event_handler handle_add_todo() uses [DOM] {
+        if new_todo != "" {
+            set_state(todos, todos.append(new_todo))
+            set_state(new_todo, "")
+        }
+    }
+    
+    event_handler handle_input_change(value: string) uses [DOM] {
+        set_state(new_todo, value)
+    }
+    
+    event_handler handle_filter_change(new_filter: string) uses [DOM] {
+        set_state(filter, new_filter)
+    }
+    
+    render {
+        div(class: "todo-app") {
+            h1(text: "Todo List")
+            
+            div(class: "input-section") {
+                input(
+                    value: new_todo,
+                    placeholder: "Enter new todo",
+                    on_input: handle_input_change
+                )
+                Button(
+                    text: "Add",
+                    variant: "primary",
+                    disabled: new_todo == ""
+                )
+            }
+            
+            div(class: "filter-section") {
+                Button(
+                    text: "All",
+                    variant: filter == "all" ? "primary" : "secondary",
+                    disabled: false
+                )
+                Button(
+                    text: "Active", 
+                    variant: filter == "active" ? "primary" : "secondary",
+                    disabled: false
+                )
+                Button(
+                    text: "Completed",
+                    variant: filter == "completed" ? "primary" : "secondary", 
+                    disabled: false
+                )
+            }
+            
+            div(class: "todo-list") {
+                if todos.length > 0 {
+                    ul() {
+                        for todo in todos {
+                            li(text: todo, key: todo)
+                        }
+                    }
+                } else {
+                    p(text: "No todos yet!", class: "empty-state")
+                }
+            }
+            
+            div(class: "status") {
+                p(text: "Total todos: " + todos.length.toString())
+            }
+        }
+    }
+}

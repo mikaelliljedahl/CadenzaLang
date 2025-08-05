@@ -1,0 +1,51 @@
+component Counter() 
+    uses [DOM] 
+    events [on_increment, on_decrement]
+    -> UIComponent 
+{
+    declare_state count: int = 0
+    
+    event_handler handle_increment() uses [DOM] {
+        set_state(count, count + 1)
+    }
+    
+    event_handler handle_decrement() uses [DOM] {
+        set_state(count, count - 1)
+    }
+    
+    render {
+        container(
+            class: "semantic: padding:lg, flex-column, center",
+            style: "semantic: background:background-alt"
+        ) {
+            heading(
+                level: 1, 
+                text: "Counter: " + count.toString(),
+                class: "semantic: text:primary, margin:md"
+            )
+            container(
+                class: "semantic: flex, gap:md"
+            ) {
+                button(
+                    text: "Increment",
+                    on_click: handle_increment,
+                    class: "btn-primary"
+                )
+                button(
+                    text: "Decrement", 
+                    on_click: handle_decrement,
+                    class: "btn-secondary"
+                )
+            }
+            container(
+                class: "semantic: margin:md, text:center"
+            ) {
+                heading(
+                    level: 3,
+                    text: "Status: OK",
+                    class: "text-muted"
+                )
+            }
+        }
+    }
+}

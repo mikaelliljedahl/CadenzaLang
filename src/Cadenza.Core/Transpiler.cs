@@ -30,11 +30,23 @@ public class CadenzaTranspiler
         var parser = new CadenzaParser(tokens);
         var ast = parser.Parse();
         
-        // Generate C#
-        var generator = new CSharpGenerator();
-        var syntaxTree = generator.GenerateFromAST(ast);
+        // Check if any components have UIComponent return type
+        bool hasUIComponents = ast.Statements.OfType<ComponentDeclaration>()
+            .Any(c => c.ReturnType.Equals("UIComponent", StringComparison.OrdinalIgnoreCase));
         
-        return syntaxTree.GetRoot().NormalizeWhitespace().ToFullString();
+        if (hasUIComponents)
+        {
+            // Use Blazor generation for UI components
+            return TranspileToBlazorFromAST(ast);
+        }
+        else
+        {
+            // Generate regular C#
+            var generator = new CSharpGenerator();
+            var syntaxTree = generator.GenerateFromAST(ast);
+            
+            return syntaxTree.GetRoot().NormalizeWhitespace().ToFullString();
+        }
     }
 
     public async Task<string> TranspileAsync(string sourceFile, string? outputFile = null)
@@ -50,11 +62,23 @@ public class CadenzaTranspiler
         var parser = new CadenzaParser(tokens);
         var ast = parser.Parse();
         
-        // Generate C#
-        var generator = new CSharpGenerator();
-        var syntaxTree = generator.GenerateFromAST(ast);
+        // Check if any components have UIComponent return type
+        bool hasUIComponents = ast.Statements.OfType<ComponentDeclaration>()
+            .Any(c => c.ReturnType.Equals("UIComponent", StringComparison.OrdinalIgnoreCase));
         
-        var csharpCode = syntaxTree.GetRoot().NormalizeWhitespace().ToFullString();
+        string csharpCode;
+        if (hasUIComponents)
+        {
+            // Use Blazor generation for UI components
+            csharpCode = TranspileToBlazorFromAST(ast);
+        }
+        else
+        {
+            // Generate regular C#
+            var generator = new CSharpGenerator();
+            var syntaxTree = generator.GenerateFromAST(ast);
+            csharpCode = syntaxTree.GetRoot().NormalizeWhitespace().ToFullString();
+        }
         
         // Write to output file if specified
         if (outputFile != null)
@@ -80,38 +104,71 @@ public class CadenzaTranspiler
     
     public async Task<string> TranspileToBlazorAsync(string sourceFile, string? outputFile = null)
     {
-        // Read source file
-        var source = await File.ReadAllTextAsync(sourceFile);
-        
-        // Lex
-        var lexer = new CadenzaLexer(source);
-        var tokens = lexer.ScanTokens();
-        
-        // Parse
-        var parser = new CadenzaParser(tokens);
-        var ast = parser.Parse();
-        
-        // Generate Blazor
-        var blazorGenerator = new BlazorGenerator();
-        var blazorContent = new System.Text.StringBuilder();
-        
-        // Generate Blazor components from AST
-        foreach (var statement in ast.Statements)
+        try
         {
-            if (statement is ComponentDeclaration component)
+            // Read source file
+            var source = await File.ReadAllTextAsync(sourceFile);
+            
+            // Lex
+            var lexer = new CadenzaLexer(source);
+            var tokens = lexer.ScanTokens();
+            
+            // Parse
+            var parser = new CadenzaParser(tokens);
+            var ast = parser.Parse();
+            
+            // Generate Blazor using production BlazorGenerator
+            var blazorCode = TranspileToBlazorFromAST(ast);
+            
+            // Write to output file if specified
+            if (outputFile != null)
             {
-                blazorContent.AppendLine(blazorGenerator.GenerateBlazorComponent(component));
+                await File.WriteAllTextAsync(outputFile, blazorCode);
             }
+            
+            return blazorCode;
         }
-        
-        var blazorCode = blazorContent.ToString();
-        
-        // Write to output file if specified
-        if (outputFile != null)
+        catch (Exception ex)
         {
-            await File.WriteAllTextAsync(outputFile, blazorCode);
+            throw new InvalidOperationException($"Failed to transpile Blazor component from '{sourceFile}': {ex.Message}", ex);
         }
-        
-        return blazorCode;
+    }
+
+    /// <summary>
+    /// Helper method to transpile AST to Blazor using the production BlazorGenerator
+    /// </summary>
+    private string TranspileToBlazorFromAST(ProgramNode ast)
+    {
+        try
+        {
+            var blazorGenerator = new EnhancedBlazorGenerator();
+            var blazorContent = new System.Text.StringBuilder();
+            
+            // Generate Blazor components from AST
+            foreach (var statement in ast.Statements)
+            {
+                if (statement is ComponentDeclaration component)
+                {
+                    blazorContent.AppendLine(blazorGenerator.GenerateBlazorComponent(component));
+                    blazorContent.AppendLine(); // Add spacing between components
+                }
+                // Note: For mixed UI/non-UI scenarios, non-UI statements would need separate compilation
+                // This integration focuses on pure UI component files
+            }
+            
+            var result = blazorContent.ToString();
+            
+            // Validate that we generated some content
+            if (string.IsNullOrWhiteSpace(result))
+            {
+                throw new InvalidOperationException("No Blazor components found or generated");
+            }
+            
+            return result;
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"Failed to generate Blazor code from AST: {ex.Message}", ex);
+        }
     }
 }

@@ -1,0 +1,41 @@
+// User model module
+module User {
+    type UserData {
+        id: int,
+        name: string,
+        email: string
+    }
+    
+    /*spec
+    intent: "Create a new user data structure with provided information"
+    rules:
+      - "Name must not be empty"
+      - "Email must not be empty"
+      - "ID must be positive integer"
+    postconditions:
+      - "Returns valid UserData structure"
+      - "All fields are properly initialized"
+    spec*/
+    pure function create(name: string, email: string, id: int) -> UserData {
+        return UserData {
+            id: id,
+            name: name,
+            email: email
+        }
+    }
+    
+    /*spec
+    intent: "Validate user data meets basic requirements"
+    rules:
+      - "Name cannot be empty string"
+      - "Email cannot be empty string"
+    postconditions:
+      - "Returns true if user data is valid"
+      - "Returns false if any validation rule fails"
+    spec*/
+    pure function isValid(user: UserData) -> bool {
+        return user.name != "" && user.email != ""
+    }
+    
+    export { UserData, create, isValid }
+}

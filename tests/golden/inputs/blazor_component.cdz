@@ -1,0 +1,29 @@
+// Blazor component with state management and event handling
+component Counter(title: string) 
+    uses [DOM] 
+    -> UIComponent 
+{
+    declare_state count: int = 0
+    declare_state message: string = "Click to count"
+    
+    event_handler handle_increment() uses [DOM] {
+        set_state(count, count + 1)
+        set_state(message, "Count: " + count.toString())
+    }
+    
+    event_handler handle_reset() uses [DOM] {
+        set_state(count, 0)
+        set_state(message, "Reset!")
+    }
+    
+    render {
+        div(class: "counter-container") {
+            h1(text: title)
+            p(text: message)
+            div(class: "buttons") {
+                button(text: "+", on_click: handle_increment)
+                button(text: "Reset", on_click: handle_reset)
+            }
+        }
+    }
+}

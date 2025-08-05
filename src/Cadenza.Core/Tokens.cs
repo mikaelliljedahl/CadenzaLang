@@ -81,6 +81,7 @@ public enum TokenType
     Import,   // import keyword
     Export,   // export keyword
     From,     // from keyword
+    Type,     // type keyword for type definitions
     Dot,      // . for qualified names and imports
     LeftBraceCurly,  // { for import lists
     RightBraceCurly, // } for import lists
@@ -92,6 +93,7 @@ public enum TokenType
     Render,
     OnMount,
     EventHandler,
+    DeclareState,
     AppState,
     Action,
     Updates,

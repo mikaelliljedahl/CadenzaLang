@@ -1,0 +1,67 @@
+// Realistic UI Example - Uses only currently supported parser syntax
+// This example demonstrates what can actually be implemented with the current Cadenza parser
+
+component SimpleCounter(title: string) 
+    uses [DOM] 
+    state [count, message, disabled]
+    events [on_increment, on_decrement, on_reset]
+    -> UIComponent 
+{
+    declare_state count: int = 0
+    declare_state message: string = "Click to count"
+    declare_state disabled: bool = false
+    
+    event_handler handle_increment() uses [DOM] {
+        set_state(count, count + 1)
+        set_state(message, "Count: " + count.toString())
+    }
+    
+    event_handler handle_decrement() uses [DOM] {
+        set_state(count, count - 1)
+        set_state(message, "Count: " + count.toString())
+    }
+    
+    event_handler handle_reset() uses [DOM] {
+        set_state(count, 0)
+        set_state(message, "Reset!")
+    }
+    
+    event_handler handle_disable_toggle() uses [DOM] {
+        set_state(disabled, !disabled)
+    }
+    
+    render {
+        div(class: "counter-app") {
+            h1(text: title)
+            p(text: message, class: "message")
+            
+            div(class: "controls") {
+                button(
+                    text: "-",
+                    on_click: handle_decrement,
+                    disabled: disabled
+                )
+                button(
+                    text: "Reset", 
+                    on_click: handle_reset,
+                    disabled: disabled
+                )
+                button(
+                    text: "+",
+                    on_click: handle_increment,
+                    disabled: disabled
+                )
+            }
+            
+            if disabled {
+                p(text: "Counter is disabled", class: "warning")
+            }
+            
+            button(
+                text: disabled ? "Enable" : "Disable",
+                on_click: handle_disable_toggle,
+                class: "toggle-btn"
+            )
+        }
+    }
+}

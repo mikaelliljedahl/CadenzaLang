@@ -1,0 +1,46 @@
+// Greeting Component - Dynamic greeting with customizable name and message
+
+component Greeting() uses [DOM] -> UIComponent {
+    declare_state name: string = "World"
+    declare_state message: string = "Hello"
+    
+    event_handler handle_name_change() uses [DOM] {
+        set_state(name, "Claude")
+    }
+    
+    event_handler handle_message_change() uses [DOM] {
+        set_state(message, "Greetings")
+    }
+    
+    render {
+        container(
+            class: "semantic: padding:lg, flex-column, center",
+            style: "semantic: background:success-light"
+        ) {
+            heading(
+                level: 1, 
+                text: "Greeting Component",
+                class: "semantic: text:success, margin:md"
+            )
+            heading(
+                level: 2, 
+                text: message + ", " + name + "!",
+                class: "semantic: text:dark, margin:md"
+            )
+            container(
+                class: "semantic: flex, gap:md"
+            ) {
+                button(
+                    text: "Change Name",
+                    on_click: handle_name_change,
+                    class: "btn-secondary"
+                )
+                button(
+                    text: "Change Message",
+                    on_click: handle_message_change,
+                    class: "btn-secondary"
+                )
+            }
+        }
+    }
+}

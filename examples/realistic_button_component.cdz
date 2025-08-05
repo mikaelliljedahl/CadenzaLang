@@ -1,0 +1,15 @@
+// Realistic Button Component - Demonstrates component composition with current parser syntax
+
+component Button(text: string, variant: string, disabled: bool) 
+    uses [DOM] 
+    events [on_click]
+    -> UIComponent 
+{
+    render {
+        button(
+            text: text,
+            class: "btn btn-" + variant,
+            disabled: disabled
+        )
+    }
+}

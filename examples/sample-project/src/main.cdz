@@ -1,0 +1,21 @@
+// Main application entry point
+import UserController.{ControllerData, createController, handleCreateUser}
+import UserService.{createService}
+
+function main() -> int {
+    // Initialize services
+    let userService = createService()
+    let userController = createController(userService)
+    
+    // Sample operations
+    let result = handleCreateUser(userController, "John Doe", "john@example.com")
+    
+    match result {
+        Ok(id) -> {
+            return 0
+        }
+        Error(message) -> {
+            return 1
+        }
+    }
+}

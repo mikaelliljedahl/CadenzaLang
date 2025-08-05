@@ -1,0 +1,62 @@
+// User service module
+import User.{UserData, create, isValid}
+
+module UserService {
+    type ServiceData {
+        nextId: int
+    }
+    
+    /*spec
+    intent: "Initialize user service with starting ID counter"
+    rules:
+      - "Service starts with ID counter at 1"
+    postconditions:
+      - "Returns initialized service ready for user creation"
+    spec*/
+    function createService() -> ServiceData {
+        return ServiceData { nextId: 1 }
+    }
+    
+    /*spec
+    intent: "Create and validate a new user in the system"
+    rules:
+      - "User data must pass validation checks"
+      - "Each user gets unique sequential ID"
+      - "Service ID counter is incremented after successful creation"
+    postconditions:
+      - "Returns user ID on successful creation"
+      - "Returns error message if validation fails"
+      - "Service state is updated with new next ID"
+    spec*/
+    function createUser(service: ServiceData, name: string, email: string) uses [Memory] -> Result<int, string> {
+        let user = create(name, email, service.nextId)
+        
+        if (!isValid(user)) {
+            return Error("Invalid user data")
+        }
+        
+        let userId = service.nextId
+        service.nextId = service.nextId + 1
+        
+        return Ok(userId)
+    }
+    
+    /*spec
+    intent: "Retrieve user name by ID for display purposes"
+    rules:
+      - "ID must be positive integer"
+      - "Returns formatted user identifier"
+    postconditions:
+      - "Returns user name string if ID is valid"
+      - "Returns error if ID is invalid"
+    spec*/
+    function getUserName(id: int) -> Result<string, string> {
+        if (id <= 0) {
+            return Error("Invalid user ID")
+        }
+        
+        return Ok($"User{id}")
+    }
+    
+    export { ServiceData, createService, createUser, getUserName }
+}

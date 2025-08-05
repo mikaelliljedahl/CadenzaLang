@@ -1,0 +1,11 @@
+pure function isEmpty(s: string) -> bool {
+    return s == ""
+}
+
+pure function length(s: string) -> int {
+    return s.Length
+}
+
+function reverse(s: string) -> string {
+    return s // Simplified - real implementation would reverse
+}

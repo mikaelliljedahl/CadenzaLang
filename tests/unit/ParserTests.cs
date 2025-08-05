@@ -765,5 +765,102 @@ namespace Cadenza.Tests.Unit
                 Assert.That(func.Effects, Contains.Item(effect));
             }
         }
+
+        [Test]
+        public void Parser_ShouldParseSimpleTypeDeclaration()
+        {
+            // Arrange
+            var source = "type User { name: string, age: int }";
+            var parser = CreateParser(source);
+
+            // Act
+            var program = parser.Parse();
+
+            // Assert
+            Assert.That(program.Statements.Count, Is.EqualTo(1));
+            Assert.That(program.Statements[0], Is.InstanceOf<TypeDeclaration>());
+            
+            var type = program.Statements[0] as TypeDeclaration;
+            Assert.That(type, Is.Not.Null);
+            Assert.That(type.Name, Is.EqualTo("User"));
+            Assert.That(type.Fields.Count, Is.EqualTo(2));
+            
+            Assert.That(type.Fields[0].Name, Is.EqualTo("name"));
+            Assert.That(type.Fields[0].Type, Is.EqualTo("string"));
+            Assert.That(type.Fields[1].Name, Is.EqualTo("age"));
+            Assert.That(type.Fields[1].Type, Is.EqualTo("int"));
+        }
+
+        [Test]
+        public void Parser_ShouldParseTypeDeclarationWithAllBuiltinTypes()
+        {
+            // Arrange
+            var source = "type TestType { text: string, number: int, flag: bool }";
+            var parser = CreateParser(source);
+
+            // Act
+            var program = parser.Parse();
+
+            // Assert
+            var type = (TypeDeclaration)program.Statements[0];
+            Assert.That(type.Fields.Count, Is.EqualTo(3));
+            Assert.That(type.Fields[0].Type, Is.EqualTo("string"));
+            Assert.That(type.Fields[1].Type, Is.EqualTo("int"));
+            Assert.That(type.Fields[2].Type, Is.EqualTo("bool"));
+        }
+
+        [Test]
+        public void Parser_ShouldParseTypeDeclarationInModule()
+        {
+            // Arrange
+            var source = @"module UserModule {
+                type User { 
+                    id: int,
+                    name: string,
+                    email: string
+                }
+            }";
+            var parser = CreateParser(source);
+
+            // Act
+            var program = parser.Parse();
+
+            // Assert
+            Assert.That(program.Statements.Count, Is.EqualTo(1));
+            Assert.That(program.Statements[0], Is.InstanceOf<ModuleDeclaration>());
+            
+            var module = program.Statements[0] as ModuleDeclaration;
+            Assert.That(module, Is.Not.Null);
+            Assert.That(module.Name, Is.EqualTo("UserModule"));
+            Assert.That(module.Body.Count, Is.EqualTo(1));
+            Assert.That(module.Body[0], Is.InstanceOf<TypeDeclaration>());
+            
+            var type = module.Body[0] as TypeDeclaration;
+            Assert.That(type, Is.Not.Null);
+            Assert.That(type.Name, Is.EqualTo("User"));
+            Assert.That(type.Fields.Count, Is.EqualTo(3));
+        }
+
+        [Test]
+        public void Parser_ShouldParseTypeDeclarationWithOptionalCommas()
+        {
+            // Arrange
+            var source = @"type Product {
+                id: int,
+                name: string,
+                price: int
+            }";
+            var parser = CreateParser(source);
+
+            // Act
+            var program = parser.Parse();
+
+            // Assert
+            var type = (TypeDeclaration)program.Statements[0];
+            Assert.That(type.Fields.Count, Is.EqualTo(3));
+            Assert.That(type.Fields[0].Name, Is.EqualTo("id"));
+            Assert.That(type.Fields[1].Name, Is.EqualTo("name"));
+            Assert.That(type.Fields[2].Name, Is.EqualTo("price"));
+        }
     }
 }

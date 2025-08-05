@@ -20,6 +20,10 @@ public record SpecificationBlock(
     string? SourceDoc = null
 ) : ASTNode;
 
+// Type definition AST nodes
+public record TypeDeclaration(string Name, List<TypeField> Fields, bool IsExported = false) : ASTNode;
+public record TypeField(string Name, string Type);
+
 // Function AST nodes
 public record FunctionDeclaration(
     string Name, 
@@ -70,6 +74,7 @@ public record ComponentDeclaration(
     string Name,
     List<Parameter> Parameters,
     List<string>? Effects,
+    string ReturnType,
     List<StateDeclaration>? State,
     List<EventHandler>? Events,
     ASTNode? OnMount,
@@ -84,6 +89,7 @@ public record ComponentInstance(string Name, List<UIAttribute> Props, List<ASTNo
 
 public record ConditionalRender(ASTNode Condition, List<ASTNode> ThenBody, List<ASTNode>? ElseBody = null) : ASTNode;
 public record IterativeRender(string Variable, ASTNode Collection, ASTNode? Condition, List<ASTNode> Body) : ASTNode;
+public record RenderBlock(List<ASTNode> Items) : ASTNode;
 
 public record AppStateDeclaration(
     string Name,

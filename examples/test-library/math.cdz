@@ -1,0 +1,18 @@
+pure function add(a: int, b: int) -> int {
+    return a + b
+}
+
+pure function subtract(a: int, b: int) -> int {
+    return a - b
+}
+
+pure function multiply(a: int, b: int) -> int {
+    return a * b
+}
+
+function safeDivide(a: int, b: int) -> Result<int, string> {
+    if b == 0 {
+        return Error("Division by zero")
+    }
+    return Ok(a / b)
+}

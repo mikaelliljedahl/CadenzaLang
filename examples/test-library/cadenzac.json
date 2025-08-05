@@ -1,0 +1,10 @@
+{
+  "name": "MathLibrary",
+  "version": "1.0.0",
+  "description": "A simple math library built with Cadenza",
+  "build": {
+    "source": "./",
+    "output": "bin/",
+    "outputType": "library"
+  }
+}

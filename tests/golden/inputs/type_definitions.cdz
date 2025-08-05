@@ -1,0 +1,28 @@
+// Test type definitions with various structures
+type User {
+    id: int,
+    name: string,
+    email: string,
+    isActive: bool
+}
+
+type Product {
+    productId: string,
+    price: int
+}
+
+module UserModule {
+    type UserProfile {
+        userId: int,
+        displayName: string,
+        verified: bool
+    }
+
+    pure function isValid(profile: UserProfile) -> bool {
+        return profile.displayName != ""
+    }
+}
+
+function main() -> int {
+    return 0
+}

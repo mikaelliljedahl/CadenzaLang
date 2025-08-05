@@ -1,0 +1,58 @@
+// User controller module
+import UserService.{ServiceData, createService, createUser, getUserName}
+
+module UserController {
+    type ControllerData {
+        userService: ServiceData
+    }
+    
+    /*spec
+    intent: "Initialize user controller with service dependency"
+    rules:
+      - "Controller must be initialized with valid user service"
+    postconditions:
+      - "Returns controller ready to handle user operations"
+    spec*/
+    function createController(userService: ServiceData) -> ControllerData {
+        return ControllerData { userService: userService }
+    }
+    
+    /*spec
+    intent: "Handle HTTP request to create new user with validation and error handling"
+    rules:
+      - "Delegates user creation to service layer"
+      - "Provides enhanced error messages for API consumers"
+      - "Maintains separation between controller and business logic"
+    postconditions:
+      - "Returns user ID on successful creation"
+      - "Returns descriptive error message on failure"
+      - "Service layer handles all business validation"
+    spec*/
+    function handleCreateUser(controller: ControllerData, name: string, email: string) uses [Memory] -> Result<int, string> {
+        let result = createUser(controller.userService, name, email)
+        
+        match result {
+            Ok(id) -> {
+                return Ok(id)
+            }
+            Error(message) -> {
+                return Error($"Failed to create user: {message}")
+            }
+        }
+    }
+    
+    /*spec
+    intent: "Handle HTTP request to retrieve user information by ID"
+    rules:
+      - "Delegates user lookup to service layer"
+      - "Returns user data suitable for API response"
+    postconditions:
+      - "Returns user name if found"
+      - "Returns error message if user not found or ID invalid"
+    spec*/
+    function handleGetUser(controller: ControllerData, id: int) -> Result<string, string> {
+        return getUserName(id)
+    }
+    
+    export { ControllerData, createController, handleCreateUser, handleGetUser }
+}

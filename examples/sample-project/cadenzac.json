@@ -1,0 +1,40 @@
+{
+  "name": "SampleWebAPI",
+  "version": "1.0.0",
+  "description": "A sample web API demonstrating multi-file Cadenza compilation",
+  "build": {
+    "source": "src/",
+    "output": "bin/",
+    "outputType": "exe",
+    "entryPoint": "main.cdz",
+    "target": "csharp",
+    "framework": "net8.0"
+  },
+  "include": [
+    "src/**/*.cdz",
+    "shared/**/*.cdz"
+  ],
+  "exclude": [
+    "tests/**/*.cdz",
+    "examples/**/*.cdz",
+    "**/*_temp.cdz"
+  ],
+  "dependencies": {
+    "Microsoft.AspNetCore": "8.0.0",
+    "Microsoft.Extensions.Logging": "8.0.0",
+    "Newtonsoft.Json": "13.0.3"
+  },
+  "devDependencies": {
+    "Microsoft.AspNetCore.Testing": "8.0.0"
+  },
+  "compiler": {
+    "strictMode": true,
+    "enableNullabilityChecks": true,
+    "warningsAsErrors": false,
+    "debugSymbols": true
+  },
+  "linting": {
+    "enabled": true,
+    "configFile": "cadenzalint.json"
+  }
+}
